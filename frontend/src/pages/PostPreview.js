@@ -17,19 +17,24 @@ const PostPreview = () => {
   }, [taskId, pagination.current, pagination.pageSize]);
 
   const getImageUrl = (media) => {
-    // 如果有本地路径，需要根据环境添加正确的前缀
+    // 如果是本地路径（以 /public 开头），需要指向后端服务器
     if (media.url && media.url.startsWith('/public')) {
-      // 在开发环境下，明确指向后端服务器
-      // 在生产环境下，Nginx 会处理静态文件服务
-      const isDevelopment = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
-      console.log('getImageUrl - NODE_ENV:', process.env.NODE_ENV, 'isDevelopment:', isDevelopment, 'original url:', media.url);
-      if (isDevelopment) {
-        const fullUrl = `http://localhost:5000${media.url}`;
-        console.log('getImageUrl - returning:', fullUrl);
-        return fullUrl;
+      // 检查是否在浏览器中直接访问（非 Docker 环境）
+      // 在本地开发时，前端在 3000 端口，后端在 5000 端口
+      // 需要明确指向后端服务器
+      const isLocalDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+      if (isLocalDevelopment) {
+        const backendUrl = `http://localhost:5000${media.url}`;
+        console.log('[getImageUrl] Local image detected, using backend URL:', backendUrl);
+        return backendUrl;
       }
+
+      // 在生产环境（Docker/Nginx），直接使用相对路径
       return media.url;
     }
+
+    // 远程 URL，直接返回
     return media.url;
   };
 
