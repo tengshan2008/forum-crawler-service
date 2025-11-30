@@ -17,8 +17,14 @@ const PostPreview = () => {
   }, [taskId, pagination.current, pagination.pageSize]);
 
   const getImageUrl = (media) => {
-    // 如果有本地路径，使用本地路径；否则使用远程 URL
+    // 如果有本地路径，需要根据环境添加正确的前缀
     if (media.url && media.url.startsWith('/public')) {
+      // 在开发环境下，明确指向后端服务器
+      // 在生产环境下，Nginx 会处理静态文件服务
+      const isDevelopment = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+      if (isDevelopment) {
+        return `http://localhost:5000${media.url}`;
+      }
       return media.url;
     }
     return media.url;
