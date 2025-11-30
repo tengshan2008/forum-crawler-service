@@ -22,8 +22,11 @@ const PostPreview = () => {
       // 在开发环境下，明确指向后端服务器
       // 在生产环境下，Nginx 会处理静态文件服务
       const isDevelopment = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
+      console.log('getImageUrl - NODE_ENV:', process.env.NODE_ENV, 'isDevelopment:', isDevelopment, 'original url:', media.url);
       if (isDevelopment) {
-        return `http://localhost:5000${media.url}`;
+        const fullUrl = `http://localhost:5000${media.url}`;
+        console.log('getImageUrl - returning:', fullUrl);
+        return fullUrl;
       }
       return media.url;
     }
@@ -36,7 +39,7 @@ const PostPreview = () => {
         page: pagination.current,
         limit: pagination.pageSize,
       });
-      
+
       if (response.data && response.data.data) {
         setPosts(response.data.data);
         setPagination({
@@ -60,7 +63,7 @@ const PostPreview = () => {
     <Spin spinning={loading}>
       <div className="post-preview">
         {posts.map((post) => (
-          <Card 
+          <Card
             key={post._id}
             style={{ marginBottom: 24 }}
             title={
@@ -96,14 +99,14 @@ const PostPreview = () => {
                   <Row gutter={[12, 12]}>
                     {post.media.map((m, idx) => (
                       <Col key={idx} xs={12} sm={8} md={6} lg={4} xl={3}>
-                        <div style={{ 
+                        <div style={{
                           position: 'relative',
                           paddingBottom: '100%',
                           overflow: 'hidden',
                           borderRadius: '4px',
                           backgroundColor: '#f0f0f0'
                         }}>
-                          <Image 
+                          <Image
                             src={getImageUrl(m)}
                             alt={m.description || `图片 ${idx + 1}`}
                             style={{
@@ -125,8 +128,8 @@ const PostPreview = () => {
                 </Image.PreviewGroup>
               </div>
             ) : (
-              <Empty 
-                description="暂无媒体内容" 
+              <Empty
+                description="暂无媒体内容"
                 style={{ padding: '40px 0' }}
               />
             )}
