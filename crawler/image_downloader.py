@@ -93,7 +93,7 @@ def download_image(url, task_id):
             timeout=10,
             headers={
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': 'https://t66y.com/',
+                # 'Referer': 'https://t66y.com/',  # 移除 Referer 以避免防盗链
                 'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
                 'Accept-Language': 'zh-CN,zh;q=0.9',
                 'Accept-Encoding': 'gzip, deflate, br',
@@ -105,13 +105,19 @@ def download_image(url, task_id):
         response.raise_for_status()
         
         # 检查文件大小（限制为 50MB）
-        if len(response.content) > 50 * 1024 * 1024:
+        content_length = len(response.content)
+        if content_length > 50 * 1024 * 1024:
             return {'success': False, 'error': '文件过大'}
         
+        if content_length == 0:
+            print(f"⚠ 下载图片内容为空: {url}", flush=True)
+            return {'success': False, 'error': '图片内容为空'}
+
         # 保存文件
         with open(file_path, 'wb') as f:
             f.write(response.content)
         
+        print(f"✓ 下载成功 ({content_length} bytes): {url}", flush=True)
         local_path = f'/public/images/uploads/{task_id}/{file_name}'
         return {'success': True, 'local_path': local_path}
     
