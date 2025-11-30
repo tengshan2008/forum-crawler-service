@@ -125,6 +125,7 @@ const PostPreview = () => {
                             preview={{
                               mask: `预览 ${idx + 1}`
                             }}
+                            fallback={m.originalUrl}
                           />
                         </div>
                       </Col>

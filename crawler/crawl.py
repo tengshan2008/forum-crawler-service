@@ -196,6 +196,7 @@ class ForumCrawler:
                         if result['success']:
                             media.append({
                                 'url': result['local_path'],
+                                'originalUrl': image_urls[i],
                                 'description': f'楼主图片 {i + 1}'
                             })
                             success_count += 1
@@ -228,6 +229,7 @@ class ForumCrawler:
                         if result['success']:
                             media.append({
                                 'url': result['local_path'],
+                                'originalUrl': image_urls[i],
                                 'description': f'楼主图片 {i + 1}'
                             })
                             success_count += 1
@@ -367,6 +369,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
