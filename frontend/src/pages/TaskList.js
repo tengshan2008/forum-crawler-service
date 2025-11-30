@@ -197,9 +197,14 @@ const TaskList = () => {
   return (
     <div className="task-list">
       <div style={{ marginBottom: 16 }}>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleAddTask}>
-          新建任务
-        </Button>
+        <Space>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleAddTask}>
+            新建任务
+          </Button>
+          <Button icon={<PlayCircleOutlined rotate={90} />} onClick={fetchTasks}>
+            刷新
+          </Button>
+        </Space>
       </div>
 
       <Table

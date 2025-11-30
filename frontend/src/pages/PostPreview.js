@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { List, Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Tabs } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
 import { postApi } from '../services/api';
 import dayjs from 'dayjs';
 
