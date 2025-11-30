@@ -13,18 +13,25 @@ const Task = require('./models/Task');
 
 const app = express();
 
+// CORS middleware - must be before helmet to ensure headers are set correctly
+app.use(corsMiddleware);
+
 // Security middleware
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // Body parser middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// CORS middleware
-app.use(corsMiddleware);
-
 // Static files middleware - serve downloaded images
-app.use('/public', express.static(path.join(__dirname, '../../public')));
+// Add CORS headers explicitly for static files
+app.use('/public', (req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(path.join(__dirname, '../../public')));
 
 // Routes
 app.use('/', routes);
