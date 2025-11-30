@@ -1,0 +1,17 @@
+# Crawler Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app/crawler
+
+# Install dependencies
+COPY crawler/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY crawler/app ./app
+
+# Create data directories
+RUN mkdir -p downloads logs
+
+# Start application
+CMD ["python", "-m", "app.engine"]

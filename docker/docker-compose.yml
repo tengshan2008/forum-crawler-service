@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongo:
+    image: mongo:7.0
+    container_name: forum-crawler-mongo
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - forum-crawler-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: forum-crawler-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - forum-crawler-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: forum-crawler-backend
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:admin123@mongo:27017/forum-crawler?authSource=admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGIN: http://localhost:3000
+    ports:
+      - "5000:5000"
+    volumes:
+      - public_images:/app/public/images
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - forum-crawler-network
+
+  # Frontend Web UI
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    container_name: forum-crawler-frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - forum-crawler-network
+    environment:
+      REACT_APP_API_BASE_URL: http://localhost:5000/api
+
+volumes:
+  mongo_data:
+  redis_data:
+  public_images:
+
+networks:
+  forum-crawler-network:
+    driver: bridge
