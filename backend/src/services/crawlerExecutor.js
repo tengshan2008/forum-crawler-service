@@ -19,6 +19,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
       const crawlerScript = '/app/crawler/crawl.py';
       
       // 构建参数
+      const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟超时
       const args = [
         crawlerScript,
         '--url', forumUrl,
@@ -26,7 +27,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
         '--task-id', taskId,
         '--max-depth', taskConfig?.maxDepth || 3,
         '--delay', taskConfig?.delay || 1000,
-        '--timeout', taskConfig?.timeout || 30000,
+        '--timeout', timeout,
       ];
 
       console.log(`[爬虫] 启动爬虫: ${pythonPath} crawl.py --task-id ${taskId}`);
@@ -47,7 +48,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
 
       let output = '';
       let errorOutput = '';
-      const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟超时（之前是 5 分钟，太短了）
+      let crawlerOutput = {}; // 用于存储从爬虫输出中解析的信息（如标题）
 
       // 设置超时
       const timer = setTimeout(() => {
@@ -64,12 +65,32 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
         try {
           const lines = data.toString().trim().split('\n');
           for (const line of lines) {
+            // 标准格式: PROGRESS:XX
             if (line.includes('PROGRESS:')) {
               const progress = parseInt(line.split('PROGRESS:')[1]);
               updateTaskProgress(taskId, progress);
-            } else if (line.includes('CRAWLED:')) {
+            } 
+            // 替代格式: [图片下载] 进度: X/Y
+            else if (line.includes('[图片下载] 进度:')) {
+              const match = line.match(/进度:\s*(\d+)\/(\d+)/);
+              if (match) {
+                const current = parseInt(match[1]);
+                const total = parseInt(match[2]);
+                const progress = total > 0 ? Math.round((current / total) * 100) : 0;
+                updateTaskProgress(taskId, progress);
+              }
+            } 
+            // 爬取数量: CRAWLED:XX
+            else if (line.includes('CRAWLED:')) {
               const count = parseInt(line.split('CRAWLED:')[1]);
               updateTaskCrawledCount(taskId, count);
+            }
+            // 页面标题: TITLE:XXX
+            else if (line.includes('TITLE:')) {
+              const title = line.split('TITLE:')[1]?.trim();
+              if (title) {
+                crawlerOutput.title = title;
+              }
             }
           }
         } catch (e) {
@@ -93,6 +114,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
             success: true,
             taskId,
             output,
+            ...crawlerOutput, // 包含从输出中解析的信息（如标题）
           });
         } else {
           console.error(`[爬虫] 任务 ${taskId} 失败，退出码: ${code}`);

@@ -4,8 +4,8 @@ const taskSchema = new mongoose.Schema(
   {
     name: {
       type: String,
-      required: true,
       trim: true,
+      default: '',
     },
     description: {
       type: String,
@@ -55,7 +55,7 @@ const taskSchema = new mongoose.Schema(
       },
       timeout: {
         type: Number,
-        default: 30000,
+        default: 300000,
       },
       userAgent: String,
       headers: mongoose.Schema.Types.Mixed,

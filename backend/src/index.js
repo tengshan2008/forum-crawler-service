@@ -70,6 +70,14 @@ const startServer = async () => {
         // 执行爬虫
         const result = await executeCrawler(taskId, forumUrl, taskType, taskConfig);
 
+        // 获取任务信息，检查是否需要从标题更新名称
+        const task = await Task.findById(taskId);
+        if (!task.name && result.title) {
+          // 如果任务名称为空，使用爬虫返回的标题
+          task.name = result.title;
+          await task.save();
+        }
+
         // 更新任务状态为完成
         await Task.findByIdAndUpdate(taskId, {
           status: 'completed',

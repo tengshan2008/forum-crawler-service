@@ -229,8 +229,8 @@ const TaskList = () => {
         onCancel={() => setIsModalVisible(false)}
       >
         <Form form={form} layout="vertical">
-          <Form.Item label="任务名称" name="name" rules={[{ required: true, message: '请输入任务名称' }]}>
-            <Input placeholder="请输入任务名称" />
+          <Form.Item label="任务名称（可选，留空时从网页标题自动获取）" name="name">
+            <Input placeholder="若不填写，将使用爬取网页的标题作为任务名称" />
           </Form.Item>
           <Form.Item label="任务描述" name="description">
             <Input.TextArea placeholder="请输入任务描述" rows={3} />

@@ -65,7 +65,7 @@ class ForumCrawler:
             return None
     
     def parse_t66y_post(self, url, html, task_type='image'):
-        """解析 t66y 论坛帖子 - 只提取楼主（第一楼）的内容"""
+        """解析 t66y 论坛帖子 - 提取所有楼层的内容"""
         try:
             soup = BeautifulSoup(html, 'html.parser')
             
@@ -88,55 +88,69 @@ class ForumCrawler:
                 if title.startswith('Re:'):
                     title = title[3:].strip()
             
-            # 查找楼主内容区域
-            # 根据 t66y 论坛的 HTML 结构，楼主内容在第一个 id="conttpc" 的 div 中
-            content_div = None
+            # 合并所有楼层的内容和图片
+            all_content_parts = []
+            all_images = []
             
-            # 尝试查找 id="conttpc" (楼主内容的标准 ID)
-            content_div = soup.find('div', id='conttpc')
+            # 在 t66y 论坛中，每个楼层都是一个 div.tpc_content
+            # 找所有的 tpc_content div（包括 id="conttpc", id="cont..." 等）
+            content_divs = soup.find_all('div', class_='tpc_content')
             
-            # 如果找不到，尝试其他选择器
-            if not content_div:
-                content_div = soup.find('div', class_='tpc_content')
-            
-            if not content_div:
-                # 查找第一个包含 class="tpc_content do_not_catch" 的 div
-                content_div = soup.find('div', {'class': 'tpc_content do_not_catch'})
-            
-            content = '暂无内容'
-            author = '楼主'
-            images = []
-            
-            if content_div:
-                # 提取文本内容（只从楼主部分）
-                text_content = content_div.get_text(strip=True)
-                if text_content:
-                    # 只取前 1000 个字符
-                    content = text_content[:1000]
-                
-                # 提取图片（楼主的所有图片）
-                img_elements = content_div.find_all('img')
-                for idx, img in enumerate(img_elements):
-                    # t66y 论坛使用 ess-data 属性存储实际图片 URL
-                    img_url = img.get('ess-data') or img.get('src') or img.get('data-src')
+            if content_divs:
+                # 对于小说类任务，提取所有楼层的内容
+                # 对于图片类任务，也提取所有楼层（可能多楼发图）
+                for content_div in content_divs:
+                    # 提取文本内容
+                    text_content = content_div.get_text(strip=True)
+                    if text_content:
+                        all_content_parts.append(text_content)
                     
-                    if img_url and img_url.startswith('http'):
-                        # 过滤掉明确的表情、头像等小图标（iyl-data 只是占位符属性，不影响真实图片）
-                        if any(x in img_url.lower() for x in ['emotion', 'icon', 'avatar', 'face']):
-                            continue
+                    # 提取图片
+                    img_elements = content_div.find_all('img')
+                    for idx, img in enumerate(img_elements):
+                        # t66y 论坛使用 ess-data 属性存储实际图片 URL
+                        img_url = img.get('ess-data') or img.get('src') or img.get('data-src')
                         
-                        # 成功提取一张有效图片
-                        images.append({
-                            'url': img_url,
-                            'description': f'楼主图片 {len(images) + 1}'
-                        })
+                        if img_url and img_url.startswith('http'):
+                            # 过滤掉明确的表情、头像等小图标
+                            if any(x in img_url.lower() for x in ['emotion', 'icon', 'avatar', 'face']):
+                                continue
+                            
+                            # 避免重复添加同一张图片
+                            if img_url not in [img['url'] for img in all_images]:
+                                all_images.append({
+                                    'url': img_url,
+                                    'description': f'楼层 {len(all_content_parts)} 图片 {idx + 1}'
+                                })
+            else:
+                # 备用方案：如果没找到标准的 tpc_content div，尝试其他选择器
+                content_div = soup.find('div', id='conttpc')
+                if content_div:
+                    text_content = content_div.get_text(strip=True)
+                    if text_content:
+                        all_content_parts.append(text_content)
+                    
+                    img_elements = content_div.find_all('img')
+                    for img in img_elements:
+                        img_url = img.get('ess-data') or img.get('src') or img.get('data-src')
+                        if img_url and img_url.startswith('http'):
+                            if any(x in img_url.lower() for x in ['emotion', 'icon', 'avatar', 'face']):
+                                continue
+                            if img_url not in [img['url'] for img in all_images]:
+                                all_images.append({
+                                    'url': img_url,
+                                    'description': f'图片 {len(all_images) + 1}'
+                                })
+            
+            # 合并所有内容 - 用双换行分隔不同楼层
+            content = '\n\n'.join(all_content_parts) if all_content_parts else '暂无内容'
             
             return {
                 'title': title,
                 'content': content,
-                'author': author,
+                'author': '楼主',
                 'sourceUrl': url,
-                'images': images,
+                'images': all_images,
             }
         except Exception as e:
             print(f"✗ 解析页面失败: {e}", file=sys.stderr, flush=True)
@@ -293,6 +307,7 @@ class ForumCrawler:
                     upsert=True  # 如果不存在则插入
                 )
                 print(f"✓ 文章已保存: {post['title']}", flush=True)
+                print(f"TITLE:{post['title']}", flush=True)
                 print(f"PROGRESS:100", flush=True)
                 print(f"CRAWLED:1", flush=True)
                 
@@ -335,7 +350,7 @@ def main():
     parser.add_argument('--task-id', required=True, help='任务 ID')
     parser.add_argument('--max-depth', type=int, default=1, help='最大深度')
     parser.add_argument('--delay', type=int, default=1000, help='请求延迟')
-    parser.add_argument('--timeout', type=int, default=30000, help='超时时间')
+    parser.add_argument('--timeout', type=int, default=600000, help='超时时间 (ms)')
     
     args = parser.parse_args()
     

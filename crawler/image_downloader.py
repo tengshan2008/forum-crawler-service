@@ -148,9 +148,11 @@ def download_images(image_urls, task_id):
             result = download_image(url, task_id)
             results.append(result)
         
-        # 打印进度
+        # 打印进度 (同时输出百分比格式供 Node.js 解析)
         progress = min(i + batch_size, len(image_urls))
+        progress_percent = int((progress / len(image_urls)) * 100)
         print(f"[图片下载] 进度: {progress}/{len(image_urls)}", flush=True)
+        print(f"PROGRESS:{progress_percent}", flush=True)
     
     return results
 

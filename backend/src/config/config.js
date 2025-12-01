@@ -36,7 +36,7 @@ const config = {
   },
 
   crawler: {
-    timeout: process.env.CRAWLER_TIMEOUT || 30000,
+    timeout: process.env.CRAWLER_TIMEOUT || 300000,
     retryAttempts: process.env.CRAWLER_RETRY_ATTEMPTS || 3,
     maxConcurrentTasks: process.env.MAX_CONCURRENT_TASKS || 5,
   },
