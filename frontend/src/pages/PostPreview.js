@@ -32,21 +32,21 @@ const PostPreview = () => {
 
       // 创建 Blob 对象
       const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-      
+
       // 创建下载链接
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `${post.title}.txt`;
-      
+
       // 触发下载
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       // 释放 URL 对象
       URL.revokeObjectURL(url);
-      
+
       message.success('文本已下载');
     } catch (error) {
       console.error('Download error:', error);
@@ -67,7 +67,7 @@ const PostPreview = () => {
   // 获取内容分页信息
   const getContentPagination = (postId, content) => {
     if (!contentPagination[postId]) {
-      const charsPerPage = 1000; // 每页显示 1000 个字符
+      const charsPerPage = 3000; // 每页显示 1000 个字符
       const totalPages = Math.ceil(content.length / charsPerPage);
       contentPagination[postId] = {
         currentPage: 1,
@@ -149,8 +149,8 @@ const PostPreview = () => {
     <Spin spinning={loading}>
       <div className="post-preview">
         <div style={{ marginBottom: 24 }}>
-          <Button 
-            type="primary" 
+          <Button
+            type="primary"
             icon={<ArrowLeftOutlined />}
             onClick={() => navigate('/')}
           >
@@ -181,19 +181,19 @@ const PostPreview = () => {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                   <h4 style={{ margin: 0, color: '#666' }}>文章内容</h4>
                   <Space>
-                    <Button 
-                      type="primary" 
-                      ghost 
-                      size="small" 
+                    <Button
+                      type="primary"
+                      ghost
+                      size="small"
                       icon={<DownloadOutlined />}
                       onClick={() => handleDownloadText(post)}
                     >
                       下载
                     </Button>
-                    <Button 
-                      type="primary" 
-                      ghost 
-                      size="small" 
+                    <Button
+                      type="primary"
+                      ghost
+                      size="small"
                       icon={<CopyOutlined />}
                       onClick={() => handleCopyContent(post.content)}
                     >
@@ -216,7 +216,7 @@ const PostPreview = () => {
                             </div>
                             {pag.totalPages > 1 && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
-                                <Button 
+                                <Button
                                   disabled={pag.currentPage === 1}
                                   onClick={() => handleContentPageChange(post._id, pag.currentPage - 1)}
                                 >
@@ -225,7 +225,7 @@ const PostPreview = () => {
                                 <span style={{ padding: '4px 12px', lineHeight: '32px' }}>
                                   第 {pag.currentPage} / {pag.totalPages} 页
                                 </span>
-                                <Button 
+                                <Button
                                   disabled={pag.currentPage === pag.totalPages}
                                   onClick={() => handleContentPageChange(post._id, pag.currentPage + 1)}
                                 >

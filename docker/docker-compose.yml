@@ -1,9 +1,7 @@
-version: '3.8'
-
 services:
   # MongoDB Database
   mongo:
-    image: mongo:7.0
+    image: arm64v8/mongo:4.4.18
     container_name: forum-crawler-mongo
     environment:
       MONGO_INITDB_ROOT_USERNAME: admin
@@ -15,10 +13,10 @@ services:
     networks:
       - forum-crawler-network
     healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: [ "CMD", "mongo", "--eval", "db.adminCommand('ping')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # Redis Cache
   redis:
@@ -31,7 +29,7 @@ services:
     networks:
       - forum-crawler-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -80,6 +78,7 @@ volumes:
   mongo_data:
   redis_data:
   public_images:
+
 
 networks:
   forum-crawler-network:
