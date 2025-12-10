@@ -1,10 +1,12 @@
 const express = require('express');
 const taskRoutes = require('./taskRoutes');
 const postRoutes = require('./postRoutes');
+const authRoutes = require('./authRoutes');
 
 const router = express.Router();
 
 // API routes
+router.use('/api/auth', authRoutes);
 router.use('/api/tasks', taskRoutes);
 router.use('/api/posts', postRoutes);
 

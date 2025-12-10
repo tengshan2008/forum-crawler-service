@@ -69,7 +69,7 @@ const taskSchema = new mongoose.Schema(
     ],
     startTime: Date,
     endTime: Date,
-    createdBy: String,
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     createdAt: {
       type: Date,
       default: Date.now,

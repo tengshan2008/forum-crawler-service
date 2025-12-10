@@ -6,7 +6,7 @@ const catchAsync = require('../utils/catchAsync');
 exports.getAllPosts = catchAsync(async (req, res) => {
   const { taskId, postType, status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
-  const filter = {};
+  const filter = { $or: [{ userId: req.user.id }, { visibility: 'public' }] };
   if (taskId) filter.taskId = taskId;
   if (postType) filter.postType = postType;
   if (status) filter.status = status;
@@ -35,7 +35,10 @@ exports.getAllPosts = catchAsync(async (req, res) => {
 
 // Get single post by ID
 exports.getPostById = catchAsync(async (req, res) => {
-  const post = await Post.findById(req.params.id)
+  const post = await Post.findOne({
+    _id: req.params.id,
+    $or: [{ userId: req.user.id }, { visibility: 'public' }]
+  })
     .populate('taskId', 'name');
 
   if (!post) {
@@ -52,6 +55,12 @@ exports.getPostById = catchAsync(async (req, res) => {
 exports.getPostsByTaskId = catchAsync(async (req, res) => {
   const { page = 1, limit = 20, sort = '-createdAt', postType } = req.query;
   const { taskId } = req.params;
+
+  // 验证用户是否有权限访问该任务
+  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.id });
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
 
   const filter = { taskId };
   if (postType) filter.postType = postType;
@@ -79,6 +88,14 @@ exports.getPostsByTaskId = catchAsync(async (req, res) => {
 
 // Create post (internal use by crawler)
 exports.createPost = catchAsync(async (req, res) => {
+  // 为帖子添加用户ID，从任务中获取
+  if (!req.body.userId) {
+    const task = await require('../models/Task').findById(req.body.taskId);
+    if (task) {
+      req.body.userId = task.userId;
+    }
+  }
+
   const post = await Post.create(req.body);
 
   res.status(201).json({
@@ -89,10 +106,14 @@ exports.createPost = catchAsync(async (req, res) => {
 
 // Update post
 exports.updatePost = catchAsync(async (req, res) => {
-  const post = await Post.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
+  const post = await Post.findOneAndUpdate(
+    { _id: req.params.id, userId: req.user.id },
+    req.body,
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   if (!post) {
     throw new AppError('Post not found', 404);
@@ -106,7 +127,7 @@ exports.updatePost = catchAsync(async (req, res) => {
 
 // Delete post
 exports.deletePost = catchAsync(async (req, res) => {
-  const post = await Post.findByIdAndDelete(req.params.id);
+  const post = await Post.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
 
   if (!post) {
     throw new AppError('Post not found', 404);
@@ -122,6 +143,12 @@ exports.deletePost = catchAsync(async (req, res) => {
 // Get post statistics
 exports.getPostStats = catchAsync(async (req, res) => {
   const { taskId } = req.params;
+
+  // 验证用户是否有权限访问该任务
+  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.id });
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
 
   const stats = await Post.aggregate([
     { $match: { taskId: require('mongoose').Types.ObjectId(taskId) } },

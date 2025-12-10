@@ -7,6 +7,16 @@ const postSchema = new mongoose.Schema(
       ref: 'CrawlerTask',
       required: true,
     },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    visibility: {
+      type: String,
+      enum: ['public', 'private', 'protected'],
+      default: 'private',
+    },
     title: {
       type: String,
       required: true,

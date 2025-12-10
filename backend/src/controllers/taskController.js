@@ -7,7 +7,7 @@ const { addCrawlerTask, getQueueStats } = require('../services/crawlerQueue');
 exports.getAllTasks = catchAsync(async (req, res) => {
   const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
   
-  const filter = {};
+  const filter = { userId: req.user.id };
   if (status) {
     filter.status = status;
   }
@@ -35,7 +35,7 @@ exports.getAllTasks = catchAsync(async (req, res) => {
 
 // Get single task by ID
 exports.getTaskById = catchAsync(async (req, res) => {
-  const task = await Task.findById(req.params.id);
+  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -58,6 +58,7 @@ exports.createTask = catchAsync(async (req, res) => {
     taskType,
     config,
     status: 'pending',
+    userId: req.user.id,
   });
 
   res.status(201).json({
@@ -69,10 +70,14 @@ exports.createTask = catchAsync(async (req, res) => {
 
 // Update task
 exports.updateTask = catchAsync(async (req, res) => {
-  const task = await Task.findByIdAndUpdate(req.params.id, req.body, {
-    new: true,
-    runValidators: true,
-  });
+  const task = await Task.findOneAndUpdate(
+    { _id: req.params.id, userId: req.user.id },
+    req.body,
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -87,7 +92,7 @@ exports.updateTask = catchAsync(async (req, res) => {
 
 // Delete task
 exports.deleteTask = catchAsync(async (req, res) => {
-  const task = await Task.findByIdAndDelete(req.params.id);
+  const task = await Task.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -102,7 +107,7 @@ exports.deleteTask = catchAsync(async (req, res) => {
 
 // Start task
 exports.startTask = catchAsync(async (req, res) => {
-  const task = await Task.findById(req.params.id);
+  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -146,7 +151,7 @@ exports.startTask = catchAsync(async (req, res) => {
 
 // Pause task
 exports.pauseTask = catchAsync(async (req, res) => {
-  const task = await Task.findById(req.params.id);
+  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -164,7 +169,7 @@ exports.pauseTask = catchAsync(async (req, res) => {
 
 // Resume task
 exports.resumeTask = catchAsync(async (req, res) => {
-  const task = await Task.findById(req.params.id);
+  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
 
   if (!task) {
     throw new AppError('Task not found', 404);

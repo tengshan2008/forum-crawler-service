@@ -26,6 +26,20 @@ const api = axios.create({
   },
 });
 
+// 请求拦截器：添加认证令牌
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
 // 响应拦截器
 api.interceptors.response.use(
   (response) => {
@@ -39,6 +53,14 @@ api.interceptors.response.use(
       message.error('服务器错误：' + (error.response.data?.message || '未知错误'));
     } else if (error.response.status === 404) {
       message.error('资源不存在');
+    } else if (error.response.data?.code === 'TOKEN_EXPIRED') {
+      // 处理令牌过期
+      message.error('登录已过期，请重新登录');
+      // 清除本地存储的认证信息
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      // 跳转到登录页面
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }

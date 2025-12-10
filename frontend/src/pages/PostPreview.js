@@ -67,7 +67,7 @@ const PostPreview = () => {
   // 获取内容分页信息
   const getContentPagination = (postId, content) => {
     if (!contentPagination[postId]) {
-      const charsPerPage = 3000; // 每页显示 1000 个字符
+      const charsPerPage = 3000; // 每页显示 3000 个字符
       const totalPages = Math.ceil(content.length / charsPerPage);
       contentPagination[postId] = {
         currentPage: 1,
