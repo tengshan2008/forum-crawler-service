@@ -35,8 +35,8 @@ router.post(
 // 刷新访问令牌
 router.post('/refresh', authController.refreshToken);
 
-// 用户登出
-router.post('/logout', authMiddleware, authController.logout);
+// 用户登出 - 移除认证中间件，允许没有令牌也能登出
+router.post('/logout', authController.logout);
 
 // 获取当前用户信息
 router.get('/me', authMiddleware, authController.getCurrentUser);

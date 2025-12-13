@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
@@ -124,6 +124,29 @@ const TaskList = () => {
       title: '任务名称',
       dataIndex: 'name',
       key: 'name',
+      render: (name) => {
+        if (!name) return '-';
+        
+        // 如果任务名称较短（少于20个字符），直接显示
+        if (name.length <= 20) {
+          return name;
+        }
+        
+        // 如果任务名称较长，使用Tooltip显示
+        return (
+          <Tooltip title={name} placement="topLeft">
+            <span style={{ 
+              display: 'inline-block', 
+              maxWidth: '200px', 
+              overflow: 'hidden', 
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {name}
+            </span>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '论坛地址',

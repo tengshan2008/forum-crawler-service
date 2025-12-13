@@ -1,8 +1,22 @@
 import axios from 'axios';
 
+// 动态确定 API 基础 URL
+// 在浏览器中，相对 URL 会基于当前位置
+// Nginx 会在 /api 路径下代理到后端
+const getApiBaseUrl = () => {
+  // 如果定义了环境变量，使用它
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  
+  // 否则使用相对路径，通过 Nginx 代理访问
+  // 这样 /api 请求会被 Nginx 代理到后端服务
+  return '/api';
+};
+
 // 创建axios实例
 const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
+  baseURL: getApiBaseUrl(),
   withCredentials: true, // 允许携带cookie
 });
 

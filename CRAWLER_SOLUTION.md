@@ -352,7 +352,7 @@ await crawlerQueue.add(
 ### 4. **超时处理**
 为爬虫进程设置合理的超时：
 ```javascript
-const timeout = taskConfig?.timeout || 300000; // 默认 5 分钟
+const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟
 const timer = setTimeout(() => crawlerProcess.kill(), timeout);
 ```
 

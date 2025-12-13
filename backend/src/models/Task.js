@@ -55,7 +55,7 @@ const taskSchema = new mongoose.Schema(
       },
       timeout: {
         type: Number,
-        default: 300000,
+        default: 600000,
       },
       userAgent: String,
       headers: mongoose.Schema.Types.Mixed,

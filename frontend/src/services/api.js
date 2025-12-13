@@ -29,9 +29,14 @@ const api = axios.create({
 // 请求拦截器：添加认证令牌
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // 对于登出请求，不强制要求令牌，因为可能由于令牌过期而需要登出
+    const isLogoutRequest = config.url && config.url.endsWith('/auth/logout');
+    
+    if (!isLogoutRequest) {
+      const token = localStorage.getItem('accessToken');
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
     return config;
   },
@@ -53,9 +58,9 @@ api.interceptors.response.use(
       message.error('服务器错误：' + (error.response.data?.message || '未知错误'));
     } else if (error.response.status === 404) {
       message.error('资源不存在');
-    } else if (error.response.data?.code === 'TOKEN_EXPIRED') {
-      // 处理令牌过期
-      message.error('登录已过期，请重新登录');
+    } else if (error.response.status === 401) {
+      // 处理所有认证失败情况，包括令牌过期和无效令牌
+      message.error(error.response.data?.message || '登录已过期，请重新登录');
       // 清除本地存储的认证信息
       localStorage.removeItem('user');
       localStorage.removeItem('accessToken');

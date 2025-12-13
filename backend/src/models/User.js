@@ -105,7 +105,7 @@ userSchema.methods.incLoginAttempts = function () {
     this.loginAttempts += 1;
     // 5次失败后锁定账户2小时
     if (this.loginAttempts >= 5) {
-      this.lockUntil = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      this.lockUntil = new Date(Date.now() + 2 * 60 * 1000);
     }
   }
   return this.save();

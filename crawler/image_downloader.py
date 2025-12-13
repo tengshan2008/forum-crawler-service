@@ -57,13 +57,14 @@ def generate_file_name(url, extension=None):
     
     return f"{file_hash}.{extension}"
 
-def download_image(url, task_id):
+def download_image(url, task_id, max_retries=3):
     """
-    下载单张图片
+    下载单张图片 - 带重试和反爬虫对抗
     
     Args:
         url: 图片URL
         task_id: 任务ID
+        max_retries: 最大重试次数
     
     Returns:
         dict: { 'success': bool, 'local_path': str, 'error': str }
@@ -71,58 +72,112 @@ def download_image(url, task_id):
     if not url or not url.startswith('http'):
         return {'success': False, 'error': '无效的URL'}
     
-    try:
-        # 获取文件扩展名
-        extension = get_extension_from_url(url)
-        file_name = generate_file_name(url, extension)
-        
-        # 创建任务特定的目录
-        task_image_dir = os.path.join(IMAGES_UPLOAD_DIR, task_id)
-        os.makedirs(task_image_dir, exist_ok=True)
-        
-        file_path = os.path.join(task_image_dir, file_name)
-        
-        # 如果文件已经存在，直接返回
-        if os.path.exists(file_path):
-            local_path = f'/public/images/uploads/{task_id}/{file_name}'
-            return {'success': True, 'local_path': local_path}
-        
-        # 下载图片
-        response = requests.get(
-            url,
-            timeout=10,
-            headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                # 'Referer': 'https://t66y.com/',  # 移除 Referer 以避免防盗链
-                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-                'Accept-Language': 'zh-CN,zh;q=0.9',
+    for attempt in range(max_retries):
+        try:
+            # 获取文件扩展名
+            extension = get_extension_from_url(url)
+            file_name = generate_file_name(url, extension)
+            
+            # 创建任务特定的目录
+            task_image_dir = os.path.join(IMAGES_UPLOAD_DIR, task_id)
+            os.makedirs(task_image_dir, exist_ok=True)
+            
+            file_path = os.path.join(task_image_dir, file_name)
+            
+            # 如果文件已经存在，直接返回
+            if os.path.exists(file_path):
+                local_path = f'/public/images/uploads/{task_id}/{file_name}'
+                return {'success': True, 'local_path': local_path}
+            
+            # 随机延迟（重试时）
+            if attempt > 0:
+                import time
+                import random
+                delay = random.uniform(2, 5)
+                print(f"⏳ 图片重试 {attempt}/{max_retries-1}，等待 {delay:.1f} 秒: {url}", flush=True)
+                time.sleep(delay)
+            
+            # 下载图片 - 增强反爬虫能力
+            session = requests.Session()
+            
+            # 轮换 User-Agent
+            user_agents = [
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
+            ]
+            
+            import random
+            headers = {
+                'User-Agent': random.choice(user_agents),
+                'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8,application/json,text/html',
+                'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
                 'Accept-Encoding': 'gzip, deflate, br',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache'
-            },
-            verify=False  # 忽略 SSL 证书验证
-        )
-        response.raise_for_status()
-        
-        # 检查文件大小（限制为 50MB）
-        content_length = len(response.content)
-        if content_length > 50 * 1024 * 1024:
-            return {'success': False, 'error': '文件过大'}
-        
-        if content_length == 0:
-            print(f"⚠ 下载图片内容为空: {url}", flush=True)
-            return {'success': False, 'error': '图片内容为空'}
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Cache-Control': 'max-age=0',
+                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"'
+            }
+            
+            # 动态生成 Referer
+            if 't66y.com' in url:
+                headers['Referer'] = 'https://t66y.com/'
+            elif 'tu.ymawv.la' in url:
+                headers['Referer'] = 'https://tu.ymawv.la/'
+            else:
+                headers['Referer'] = 'https://www.google.com/'
+                
+            response = session.get(
+                url,
+                headers=headers,
+                timeout=20,
+                verify=False,  # 忽略 SSL 证书验证
+                allow_redirects=True,
+                stream=False
+            )
+            
+            # 检查响应状态
+            if response.status_code == 200:
+                # 检查文件大小（限制为 50MB）
+                content_length = len(response.content)
+                if content_length > 50 * 1024 * 1024:
+                    return {'success': False, 'error': '文件过大'}
+                
+                if content_length == 0:
+                    print(f"⚠ 下载图片内容为空: {url}", flush=True)
+                    return {'success': False, 'error': '图片内容为空'}
 
-        # 保存文件
-        with open(file_path, 'wb') as f:
-            f.write(response.content)
+                # 保存文件
+                with open(file_path, 'wb') as f:
+                    f.write(response.content)
+                
+                print(f"✓ 下载成功 ({content_length} bytes): {url}", flush=True)
+                local_path = f'/public/images/uploads/{task_id}/{file_name}'
+                return {'success': True, 'local_path': local_path}
+            elif response.status_code == 403:
+                print(f"⚠ 图片访问被拒绝 (403): {url}，尝试重试...", flush=True)
+                continue
+            elif response.status_code == 429:
+                print(f"⚠ 图片请求过于频繁 (429): {url}，等待更长时间...", flush=True)
+                time.sleep(5)
+                continue
+            else:
+                print(f"⚠ 图片HTTP错误 {response.status_code}: {url}", flush=True)
+                continue
         
-        print(f"✓ 下载成功 ({content_length} bytes): {url}", flush=True)
-        local_path = f'/public/images/uploads/{task_id}/{file_name}'
-        return {'success': True, 'local_path': local_path}
+        except Exception as e:
+            print(f"✗ 下载图片失败 (尝试 {attempt+1}/{max_retries}): {e}", flush=True)
+            if attempt == max_retries - 1:
+                break
     
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
+    return {'success': False, 'error': f'重试{max_retries}次后仍然失败'}
 
 def download_images(image_urls, task_id):
     """

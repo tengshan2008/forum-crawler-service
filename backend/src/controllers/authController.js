@@ -96,14 +96,36 @@ exports.refreshToken = async (req, res) => {
 
 /**
  * 用户登出
+ * 注意：此接口不要求认证，因为用户可能因为令牌过期而需要登出
  */
 exports.logout = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    // 首先尝试从令牌中获取用户ID（如果有令牌）
+    let userId = null;
+    const authHeader = req.headers.authorization;
+    
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(
+          token,
+          process.env.JWT_SECRET || 'secret_key'
+        );
+        userId = decoded.userId;
+      } catch (error) {
+        // 忽略令牌验证错误，继续执行登出逻辑
+        console.log('登出时令牌验证失败，继续执行登出:', error.message);
+      }
+    }
+    
     const refreshToken =
       req.cookies.refreshToken || req.body.refreshToken;
 
-    await authService.logout(userId, refreshToken);
+    // 如果有用户ID，则从数据库中移除刷新令牌
+    if (userId) {
+      await authService.logout(userId, refreshToken);
+    }
 
     // 清除刷新令牌cookie
     res.clearCookie('refreshToken');

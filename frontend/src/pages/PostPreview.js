@@ -98,21 +98,30 @@ const PostPreview = () => {
   };
 
   const getImageUrl = (media) => {
-    // 如果是本地路径（以 /public 开头），需要指向后端服务器
+    // 如果是本地路径（以 /public 开头）
     if (media.url && media.url.startsWith('/public')) {
       // 检查是否在浏览器中直接访问（非 Docker 环境）
       // 在本地开发时，前端在 3000 端口，后端在 5000 端口
       // 需要明确指向后端服务器
-      const isLocalDevelopment = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      const isLocalDevelopment = window.location.hostname === 'localhost' || 
+                                window.location.hostname === '127.0.0.1' ||
+                                window.location.hostname === 'raspberrypi';
 
       if (isLocalDevelopment) {
-        const backendUrl = `http://localhost:5000${media.url}`;
+        const backendHost = window.location.hostname === 'raspberrypi' ? 'raspberrypi' : 'localhost';
+        const backendUrl = `http://${backendHost}:5000${media.url}`;
         console.log('[getImageUrl] Local image detected, using backend URL:', backendUrl);
         return backendUrl;
       }
 
-      // 在生产环境（Docker/Nginx），直接使用相对路径
-      return media.url;
+      // 在生产环境（Docker/Nginx），使用相对路径或绝对路径
+      // 如果 media.url 是绝对路径，直接使用
+      if (media.url.startsWith('http://') || media.url.startsWith('https://')) {
+        return media.url;
+      }
+      
+      // 否则使用相对路径，通过 Nginx 代理访问
+      return `/api${media.url}`;
     }
 
     // 远程 URL，直接返回
@@ -121,6 +130,7 @@ const PostPreview = () => {
 
   const fetchPosts = async () => {
     try {
+      setLoading(true);
       const response = await postApi.getByTaskId(taskId, {
         page: pagination.current,
         limit: pagination.pageSize,
@@ -136,13 +146,27 @@ const PostPreview = () => {
     } catch (error) {
       console.error('Error fetching posts:', error);
       setPosts([]);
+      message.error('获取文章数据失败，请稍后重试');
     } finally {
       setLoading(false);
     }
   };
 
   if (!loading && (!posts || posts.length === 0)) {
-    return <Empty description="暂无内容" />;
+    return (
+      <div className="post-preview">
+        <div style={{ marginBottom: 24 }}>
+          <Button
+            type="primary"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate('/')}
+          >
+            返回任务列表
+          </Button>
+        </div>
+        <Empty description="暂无内容" />
+      </div>
+    );
   }
 
   return (
@@ -211,8 +235,35 @@ const PostPreview = () => {
                         const currentContent = getCurrentPageContent(post._id, post.content);
                         return (
                           <div>
-                            <div style={{ maxHeight: '500px', overflowY: 'auto', padding: '12px', backgroundColor: '#fafafa', borderRadius: '4px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6, marginBottom: 16 }}>
-                              {currentContent}
+                            <div 
+                              style={{ 
+                                maxHeight: '500px', 
+                                overflowY: 'auto', 
+                                padding: '12px', 
+                                backgroundColor: '#fafafa', 
+                                borderRadius: '4px', 
+                                whiteSpace: 'pre-wrap !important', 
+                                wordBreak: 'break-word !important',
+                                wordWrap: 'break-word !important',
+                                overflowWrap: 'break-word !important',
+                                lineHeight: 1.6, 
+                                marginBottom: 16,
+                                fontFamily: 'Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+                              }}
+                            >
+                              <pre style={{ 
+                                margin: 0, 
+                                padding: 0, 
+                                whiteSpace: 'pre-wrap !important',
+                                wordBreak: 'break-word !important',
+                                wordWrap: 'break-word !important',
+                                overflowWrap: 'break-word !important',
+                                fontFamily: 'inherit',
+                                fontSize: 'inherit',
+                                lineHeight: 'inherit'
+                              }}>
+                                {currentContent}
+                              </pre>
                             </div>
                             {pag.totalPages > 1 && (
                               <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
