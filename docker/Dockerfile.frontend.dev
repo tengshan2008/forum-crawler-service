@@ -1,0 +1,14 @@
+FROM node:18-alpine
+
+WORKDIR /app/frontend
+
+# Install dependencies
+COPY frontend/package*.json ./
+RUN npm install
+
+# In dev mode, we don't copy src/public here because we use volume mapping
+# ensuring the container always sees the latest host files.
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

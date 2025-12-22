@@ -44,7 +44,15 @@ export const logout = async () => {
 
 // 获取当前用户信息
 export const getCurrentUser = () => {
-  return JSON.parse(localStorage.getItem('user'));
+  try {
+    const user = localStorage.getItem('user');
+    return user ? JSON.parse(user) : null;
+  } catch (error) {
+    console.error('Failed to parse user data from localStorage:', error);
+    // 如果解析失败，清除损坏的数据
+    localStorage.removeItem('user');
+    return null;
+  }
 };
 
 // 更新用户信息

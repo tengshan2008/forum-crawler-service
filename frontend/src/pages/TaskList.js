@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -14,11 +14,7 @@ const TaskList = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    fetchTasks();
-  }, [pagination.current, pagination.pageSize]);
-
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     setLoading(true);
     try {
       const response = await taskApi.getAll({
@@ -26,17 +22,23 @@ const TaskList = () => {
         limit: pagination.pageSize,
       });
       setTasks(response.data.data);
-      setPagination({
-        ...pagination,
-        total: response.data.pagination.total,
-      });
+      if (response.data.pagination.total !== pagination.total) {
+        setPagination((prev) => ({
+          ...prev,
+          total: response.data.pagination.total,
+        }));
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error);
       message.error('获取任务列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination]);
+
+  useEffect(() => {
+    fetchTasks();
+  }, [fetchTasks]);
 
   const handleAddTask = () => {
     setEditingTask(null);
@@ -50,7 +52,7 @@ const TaskList = () => {
     setIsModalVisible(true);
   };
 
-  const handleDeleteTask = async (id) => {
+  const handleDeleteTask = useCallback(async (id) => {
     try {
       await taskApi.delete(id);
       message.success('任务删除成功');
@@ -59,9 +61,9 @@ const TaskList = () => {
       console.error('Error deleting task:', error);
       message.error(error.response?.data?.message || '删除任务失败');
     }
-  };
+  }, [fetchTasks]);
 
-  const handleStartTask = async (id) => {
+  const handleStartTask = useCallback(async (id) => {
     try {
       await taskApi.start(id);
       message.success('任务已启动');
@@ -70,9 +72,9 @@ const TaskList = () => {
       console.error('Error starting task:', error);
       message.error(error.response?.data?.message || '启动任务失败');
     }
-  };
+  }, [fetchTasks]);
 
-  const handlePauseTask = async (id) => {
+  const handlePauseTask = useCallback(async (id) => {
     try {
       await taskApi.pause(id);
       message.success('任务已暂停');
@@ -81,13 +83,13 @@ const TaskList = () => {
       console.error('Error pausing task:', error);
       message.error(error.response?.data?.message || '暂停任务失败');
     }
-  };
+  }, [fetchTasks]);
 
   const handlePreview = (taskId) => {
     navigate(`/preview/${taskId}`);
   };
 
-  const handleModalOk = async () => {
+  const handleModalOk = useCallback(async () => {
     try {
       const values = await form.validateFields();
       if (editingTask) {
@@ -109,7 +111,8 @@ const TaskList = () => {
         message.error('保存任务失败，请检查输入内容');
       }
     }
-  };
+  }, [editingTask, fetchTasks, form]);
+
 
   const statusColors = {
     pending: 'default',

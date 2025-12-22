@@ -281,6 +281,9 @@ class ForumCrawler:
                 # 对于小说类任务，提取所有楼层的内容
                 # 对于图片类任务，也提取所有楼层（可能多楼发图）
                 for floor_idx, content_div in enumerate(content_divs, 1):
+                    # 将所有 <br> 标签替换为换行符
+                    for br in content_div.find_all('br'):
+                        br.replace_with('\n')
                     # 提取文本内容 - 对于小说类型保留换行符
                     text_content = content_div.get_text(strip=False)
                     if text_content:
@@ -316,6 +319,9 @@ class ForumCrawler:
                 # 备用方案：如果没找到标准的 tpc_content div，尝试其他选择器
                 content_div = soup.find('div', id='conttpc')
                 if content_div:
+                    # 将所有 <br> 标签替换为换行符
+                    for br in content_div.find_all('br'):
+                        br.replace_with('\n')
                     # 提取文本内容 - 对于小说类型保留换行符
                     text_content = content_div.get_text(strip=False)
                     if text_content:

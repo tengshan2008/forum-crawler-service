@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongo:
+    image: arm64v8/mongo:4.4.18
+    container_name: forum-crawler-mongo-dev
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - forum-crawler-network-dev
+    healthcheck:
+      test: [ "CMD", "mongo", "--eval", "db.adminCommand('ping')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: forum-crawler-redis-dev
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - forum-crawler-network-dev
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    container_name: forum-crawler-backend-dev
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      MONGODB_URI: mongodb://admin:admin123@mongo:27017/forum-crawler?authSource=admin
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGIN: "*"
+    ports:
+      - "5000:5000"
+    command: npm run dev
+    volumes:
+      - public_images:/app/public/images
+      - ../backend:/app/backend
+      - ../crawler:/app/crawler
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - forum-crawler-network-dev
+
+  # Frontend Web UI
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend.dev
+    container_name: forum-crawler-frontend-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend/src:/app/frontend/src
+      - ../frontend/public:/app/frontend/public
+      - /app/frontend/node_modules
+    command: npm start
+    stdin_open: true # Support for interactive mode (needed for standard React scripts)
+    tty: true        # Support for interactive mode
+    depends_on:
+      - backend
+    networks:
+      - forum-crawler-network-dev
+    environment:
+      # 在开发环境中，React 开发服务器会通过 proxy 配置转发请求
+      # 所以不需要设置 REACT_APP_API_URL，让它使用相对路径
+      WDS_SOCKET_PORT: 3000 # Fix for React HMR in Docker
+      CHOKIDAR_USEPOLLING: "true" # Essential for hot reloading on some OS/Docker combinations
+      DANGEROUSLY_DISABLE_HOST_CHECK: "true"
+
+volumes:
+  mongo_data:
+  redis_data:
+  public_images:
+
+networks:
+  forum-crawler-network-dev:
+    driver: bridge
