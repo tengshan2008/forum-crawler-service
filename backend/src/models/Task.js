@@ -13,8 +13,18 @@ const taskSchema = new mongoose.Schema(
     },
     forumUrl: {
       type: String,
-      required: true,
+      required: false,
       trim: true,
+    },
+    sectionUrl: {
+      type: String,
+      trim: true,
+      default: '',
+    },
+    crawlType: {
+      type: String,
+      enum: ['single', 'batch'],
+      default: 'single',
     },
     taskType: {
       type: String,
@@ -57,6 +67,10 @@ const taskSchema = new mongoose.Schema(
         type: Number,
         default: 600000,
       },
+      maxPages: {
+        type: Number,
+        default: 10,
+      },
       userAgent: String,
       headers: mongoose.Schema.Types.Mixed,
     },
@@ -70,6 +84,20 @@ const taskSchema = new mongoose.Schema(
     startTime: Date,
     endTime: Date,
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    schedule: {
+      enabled: {
+        type: Boolean,
+        default: false,
+      },
+      interval: {
+        type: Number,
+        default: 24,
+        description: 'Interval in hours',
+      },
+      startTime: Date,
+      lastRunTime: Date,
+    },
+    lastCrawlTime: Date,
     createdAt: {
       type: Date,
       default: Date.now,
@@ -87,4 +115,5 @@ const taskSchema = new mongoose.Schema(
 taskSchema.index({ status: 1 });
 taskSchema.index({ createdAt: -1 });
 
-module.exports = mongoose.model('CrawlerTask', taskSchema);
+exports = mongoose.model('CrawlerTask', taskSchema);
+module.exports = exports;

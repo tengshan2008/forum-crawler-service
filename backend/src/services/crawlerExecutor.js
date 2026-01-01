@@ -19,18 +19,22 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
       const crawlerScript = '/app/crawler/crawl.py';
       
       // 构建参数
-      const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟超时
-      const args = [
-        crawlerScript,
-        '--url', forumUrl,
-        '--type', taskType,
-        '--task-id', taskId,
-        '--max-depth', taskConfig?.maxDepth || 3,
-        '--delay', taskConfig?.delay || 1000,
-        '--timeout', timeout,
-      ];
+    const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟超时
+    const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
+    const args = [
+      crawlerScript,
+      '--url', forumUrl,
+      '--type', taskType,
+      '--task-id', taskId,
+      '--max-depth', taskConfig?.maxDepth || 3,
+      '--delay', taskConfig?.delay || 1000,
+      '--timeout', timeout,
+      '--max-pages', maxPages, // 添加最大页数参数
+    ];
 
-      console.log(`[爬虫] 启动爬虫: ${pythonPath} crawl.py --task-id ${taskId}`);
+      // 构建完整的命令字符串用于日志记录
+      const commandStr = `${pythonPath} ${args.join(' ')}`;
+      console.log(`[爬虫] 启动爬虫: ${commandStr}`);
 
       // 启动爬虫进程
       const crawlerProcess = spawn(pythonPath, args, {
@@ -105,11 +109,46 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
       });
 
       // 处理进程结束
-      crawlerProcess.on('close', (code) => {
+      crawlerProcess.on('close', async (code) => {
         clearTimeout(timer);
 
         if (code === 0) {
           console.log(`[爬虫] 任务 ${taskId} 完成`);
+          
+          // 如果解析到标题，更新任务名称
+          if (crawlerOutput.title) {
+            try {
+              await Task.findByIdAndUpdate(
+                taskId,
+                { 
+                  name: crawlerOutput.title, 
+                  status: 'completed',
+                  progress: 100,
+                  endTime: new Date(),
+                },
+                { new: true }
+              );
+              console.log(`[爬虫] 更新任务 ${taskId} 名称为: ${crawlerOutput.title}`);
+            } catch (error) {
+              console.error(`[爬虫] 更新任务名称失败: ${error.message}`);
+            }
+          } else {
+            // 没有标题，标记任务为完成
+            try {
+              await Task.findByIdAndUpdate(
+                taskId,
+                { 
+                  status: 'completed',
+                  progress: 100,
+                  endTime: new Date(),
+                },
+                { new: true }
+              );
+            } catch (error) {
+              console.error(`[爬虫] 更新任务状态失败: ${error.message}`);
+            }
+          }
+          
           resolve({
             success: true,
             taskId,
@@ -118,6 +157,19 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
           });
         } else {
           console.error(`[爬虫] 任务 ${taskId} 失败，退出码: ${code}`);
+          // 标记任务为失败
+          try {
+            await Task.findByIdAndUpdate(
+              taskId,
+              { 
+                status: 'failed',
+                endTime: new Date(),
+              },
+              { new: true }
+            );
+          } catch (error) {
+            console.error(`[爬虫] 更新任务状态失败: ${error.message}`);
+          }
           reject(new Error(`爬虫进程退出，代码: ${code}\n${errorOutput}`));
         }
       });

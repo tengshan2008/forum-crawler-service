@@ -49,14 +49,32 @@ exports.getTaskById = catchAsync(async (req, res) => {
 
 // Create new task
 exports.createTask = catchAsync(async (req, res) => {
-  const { name, description, forumUrl, taskType, config } = req.body;
+  const { name, description, forumUrl, sectionUrl, crawlType, taskType, config, schedule } = req.body;
+
+  // 自定义验证逻辑
+  if (crawlType === 'single' && !forumUrl) {
+    throw new AppError('单帖采集时请输入帖子地址', 400);
+  }
+  if (crawlType === 'batch' && !sectionUrl) {
+    throw new AppError('批量采集时请输入版块地址', 400);
+  }
+
+  // 如果没有提供名称，生成一个默认名称
+  let taskName = name;
+  if (!taskName || taskName.trim() === '') {
+    const now = new Date();
+    taskName = `${crawlType === 'single' ? '单帖' : '批量'}采集_${now.toISOString().slice(0, 19).replace(/[:-]/g, '-')}`;
+  }
 
   const task = await Task.create({
-    name,
+    name: taskName,
     description,
     forumUrl,
+    sectionUrl,
+    crawlType,
     taskType,
     config,
+    schedule,
     status: 'pending',
     userId: req.user.id,
   });
@@ -125,9 +143,11 @@ exports.startTask = catchAsync(async (req, res) => {
 
   // 异步启动爬虫任务（不阻塞响应）
   try {
+    // 根据采集类型选择要传递的URL
+    const url = task.crawlType === 'single' ? task.forumUrl : task.sectionUrl;
     await addCrawlerTask(
       task._id.toString(),
-      task.forumUrl,
+      url,
       task.taskType,
       task.config
     );

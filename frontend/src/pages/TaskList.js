@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
@@ -92,6 +92,7 @@ const TaskList = () => {
   const handleModalOk = useCallback(async () => {
     try {
       const values = await form.validateFields();
+      console.log('Form values:', values);
       if (editingTask) {
         await taskApi.update(editingTask._id, values);
         message.success('任务更新成功');
@@ -103,8 +104,14 @@ const TaskList = () => {
       fetchTasks();
     } catch (error) {
       console.error('Error saving task:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
       if (error.response?.data?.message) {
         message.error(error.response.data.message);
+      } else if (error.errorFields && error.errorFields.length > 0) {
+        // 显示具体的验证错误
+        const firstError = error.errorFields[0];
+        console.error('First error field:', firstError.name, 'Error:', firstError.errors);
+        message.error(firstError.errors[0]);
       } else if (error.message) {
         message.error(error.message);
       } else {
@@ -250,19 +257,66 @@ const TaskList = () => {
 
       <Modal
         title={editingTask ? '编辑任务' : '新建任务'}
-        visible={isModalVisible}
+        open={isModalVisible}
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
       >
-        <Form form={form} layout="vertical">
+        <Form 
+          form={form} 
+          layout="vertical" 
+          initialValues={{ 
+            name: '', 
+            description: '',
+            crawlType: 'single',
+            taskType: 'novel',
+            schedule: { enabled: false }
+          }}
+        >
           <Form.Item label="任务名称（可选，留空时从网页标题自动获取）" name="name">
             <Input placeholder="若不填写，将使用爬取网页的标题作为任务名称" />
           </Form.Item>
           <Form.Item label="任务描述" name="description">
             <Input.TextArea placeholder="请输入任务描述" rows={3} />
           </Form.Item>
-          <Form.Item label="论坛地址" name="forumUrl" rules={[{ required: true, message: '请输入论坛地址' }]}>
-            <Input placeholder="请输入论坛地址" />
+          <Form.Item label="采集类型" name="crawlType" rules={[{ required: true, message: '请选择采集类型' }]}>
+            <Select placeholder="请选择采集类型">
+              <Select.Option value="single">单帖采集</Select.Option>
+              <Select.Option value="batch">批量采集</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item 
+            label="论坛地址" 
+            name="forumUrl"
+            dependencies={['crawlType']}
+            shouldUpdate={(prevValues, currentValues) => prevValues.crawlType !== currentValues.crawlType}
+            rules={[
+              ({
+                getFieldValue,
+                getFieldError,
+              }) => ({
+                required: getFieldValue('crawlType') === 'single',
+                message: '单帖采集时请输入帖子地址',
+              }),
+            ]}
+          >
+            <Input placeholder="单帖采集时输入帖子地址，批量采集时可留空" />
+          </Form.Item>
+          <Form.Item 
+            label="版块地址" 
+            name="sectionUrl"
+            dependencies={['crawlType']}
+            shouldUpdate={(prevValues, currentValues) => prevValues.crawlType !== currentValues.crawlType}
+            rules={[
+              ({
+                getFieldValue,
+                getFieldError,
+              }) => ({
+                required: getFieldValue('crawlType') === 'batch',
+                message: '批量采集时请输入版块地址',
+              }),
+            ]}
+          >
+            <Input placeholder="批量采集时输入版块地址，单帖采集时可留空" />
           </Form.Item>
           <Form.Item label="任务类型" name="taskType" rules={[{ required: true, message: '请选择任务类型' }]}>
             <Select placeholder="请选择任务类型">
@@ -270,6 +324,56 @@ const TaskList = () => {
               <Select.Option value="image">图片</Select.Option>
               <Select.Option value="mixed">混合</Select.Option>
             </Select>
+          </Form.Item>
+          <Form.Item label="定时采集" name={['schedule', 'enabled']} valuePropName="checked">
+            <Checkbox>启用定时采集</Checkbox>
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => {
+            return prevValues.schedule?.enabled !== currentValues.schedule?.enabled;
+          }}>
+            {({ getFieldValue }) => {
+              const isEnabled = getFieldValue(['schedule', 'enabled']);
+              return (
+                <Form.Item 
+                  label="采集间隔（小时）" 
+                  name={['schedule', 'interval']} 
+                  rules={[
+                    {
+                      required: isEnabled,
+                      type: 'number', 
+                      min: 1, 
+                      message: '采集间隔至少为1小时'
+                    }
+                  ]}
+                >
+                  <InputNumber 
+                  placeholder="请输入采集间隔（小时）" 
+                  min={1} 
+                  disabled={!isEnabled} 
+                  style={{ width: '100%' }}
+                />
+                </Form.Item>
+              );
+            }}
+          </Form.Item>
+          <Form.Item 
+            label="最大爬取页数" 
+            name={['config', 'maxPages']} 
+            rules={[
+              {
+                type: 'number', 
+                min: 1, 
+                max: 100, 
+                message: '最大爬取页数范围为1-100'
+              }
+            ]}
+          >
+            <InputNumber 
+              placeholder="请输入最大爬取页数，默认10页" 
+              min={1} 
+              max={100} 
+              style={{ width: '100%' }}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -10,6 +10,9 @@ import argparse
 import json
 import time
 import requests
+# 忽略urllib3的InsecureRequestWarning警告
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 from datetime import datetime, timezone
 from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
@@ -79,17 +82,19 @@ class ForumCrawler:
             print(f"✗ MongoDB 连接失败: {e}", file=sys.stderr, flush=True)
             raise
     
-    def fetch_page(self, url, max_retries=3):
+    def fetch_page(self, url, max_retries=3, delay_range=(2, 4)):
         """获取页面内容 - 带重试和反爬虫"""
         for attempt in range(max_retries):
             try:
-                # 随机延迟（1-3秒）
+                # 每次请求前都添加随机延迟（2-4秒）
+                import time
+                import random
+                delay = random.uniform(delay_range[0], delay_range[1])
                 if attempt > 0:
-                    import time
-                    import random
-                    delay = random.uniform(1, 3)
                     print(f"⏳ 重试 {attempt}/{max_retries-1}，等待 {delay:.1f} 秒...", flush=True)
-                    time.sleep(delay)
+                else:
+                    print(f"⏳ 等待 {delay:.1f} 秒后请求...", flush=True)
+                time.sleep(delay)
                 
                 # 获取反爬虫headers
                 headers = self._get_headers()
@@ -132,22 +137,36 @@ class ForumCrawler:
         print(f"✗ 所有重试失败: {url}", file=sys.stderr, flush=True)
         return None
     
-    def extract_page_numbers(self, html):
-        """从HTML中提取总页数"""
+    def extract_page_numbers(self, html, max_allowed_pages=100):
+        """从HTML中提取总页数 - 带最大页数限制"""
         try:
             soup = BeautifulSoup(html, 'html.parser')
-            # 查找所有分页链接中的最大页码
-            all_links = soup.find_all('a')
             page_numbers = set()
-            for link in all_links:
-                href = link.get('href', '')
-                match = re.search(r'page=(\d+)', href)
-                if match:
-                    page_numbers.add(int(match.group(1)))
+            
+            # 1. 查找分页导航区域内的链接（更精确）
+            pagination_divs = soup.find_all(['div', 'ul', 'ol'], class_=re.compile(r'(page|pagenav|pagination|pages)', re.I))
+            
+            for pagination in pagination_divs:
+                links = pagination.find_all('a')
+                for link in links:
+                    href = link.get('href', '')
+                    match = re.search(r'page=(\d+)', href)
+                    if match:
+                        page_numbers.add(int(match.group(1)))
+            
+            # 2. 如果分页导航区域没找到，再尝试查找所有链接（兼容性）
+            if not page_numbers:
+                all_links = soup.find_all('a')
+                for link in all_links:
+                    href = link.get('href', '')
+                    match = re.search(r'page=(\d+)', href)
+                    if match:
+                        page_numbers.add(int(match.group(1)))
             
             if page_numbers:
                 max_page = max(page_numbers)
-                return max_page
+                # 3. 添加最大页数限制，避免采集过多页数
+                return min(max_page, max_allowed_pages)
             return 1
         except Exception as e:
             print(f"⚠ 提取页码失败: {e}", file=sys.stderr, flush=True)
@@ -180,6 +199,58 @@ class ForumCrawler:
             print(f"⚠ 构建分页URL失败: {e}", file=sys.stderr, flush=True)
             return None
     
+    def extract_post_links_from_section(self, html):
+        """从版块页面中提取所有帖子链接"""
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            post_links = []
+            
+            # 查找所有包含帖子链接的<a>标签
+            # t66y论坛的帖子链接通常在class="tal"或class="title"中
+            link_elements = soup.find_all('a', href=True)
+            
+            for link in link_elements:
+                href = link.get('href', '')
+                
+                # 帖子链接通常有以下格式之一：
+                # 1. /read.php?tid=123456
+                # 2. htm_data/23/2312/123456.html
+                if (href.startswith('/read.php?tid=') or 
+                    href.startswith('htm_data/')):
+                    # 构建完整URL
+                    full_url = urljoin('https://t66y.com/', href)
+                    # 提取tid以确保唯一性
+                    tid = self.extract_tid_from_url(full_url)
+                    if tid and full_url not in post_links:
+                        post_links.append(full_url)
+            
+            # 去重
+            unique_links = list(set(post_links))
+            print(f"✓ 从版块提取到 {len(unique_links)} 个帖子链接", flush=True)
+            return unique_links
+        except Exception as e:
+            print(f"⚠ 提取帖子链接失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def build_section_pagination_url(self, section_url, page_num):
+        """为版块构建分页URL"""
+        try:
+            # 检查是否已有page参数
+            if 'page=' in section_url:
+                # 替换现有page参数
+                return re.sub(r'page=\d+', f'page={page_num}', section_url)
+            elif '?' in section_url:
+                # 已有其他参数，添加page参数
+                return f"{section_url}&page={page_num}"
+            else:
+                # 无参数，添加page参数
+                return f"{section_url}?page={page_num}"
+        except Exception as e:
+            print(f"⚠ 构建版块分页URL失败: {e}", file=sys.stderr, flush=True)
+            return section_url
+    
     def parse_t66y_post(self, url, html, task_type='image'):
         """解析 t66y 论坛帖子 - 提取所有页面和楼层的内容"""
         try:
@@ -208,20 +279,55 @@ class ForumCrawler:
             all_content_parts = []
             all_images = []
             
-            # 第一步：提取第一页内容（已有HTML）
-            print(f"📄 开始提取第一页内容...", flush=True)
-            all_content_parts, all_images = self._extract_page_content(
-                html, all_content_parts, all_images, page_num=1, task_type=task_type
-            )
+            # 检查URL是否包含page=e（最后一页）或具体页码
+            current_page_num = 1
+            if 'page=e' in url:
+                # 这是最后一页，需要获取总页数并从第一页开始
+                print(f"⚠ 检测到URL是最后一页（page=e），先获取总页数", flush=True)
+                total_pages = self.extract_page_numbers(html)
+                print(f"📊 检测到总页数: {total_pages}", flush=True)
+                
+                # 构建第一页URL
+                first_page_url = self.build_pagination_url(url, 1)
+                if first_page_url:
+                    print(f"⏳ 等待 2.0 秒后请求第一页...", flush=True)
+                    import time
+                    time.sleep(2.0)
+                    first_page_html = self.fetch_page(first_page_url)
+                    if first_page_html:
+                        print(f"📄 开始提取第一页内容...", flush=True)
+                        all_content_parts, all_images = self._extract_page_content(
+                            first_page_html, all_content_parts, all_images, page_num=1, task_type=task_type
+                        )
+                    else:
+                        print(f"⚠ 无法获取第一页内容，使用当前页作为第一页", flush=True)
+                        print(f"📄 开始提取第一页内容...", flush=True)
+                        all_content_parts, all_images = self._extract_page_content(
+                            html, all_content_parts, all_images, page_num=1, task_type=task_type
+                        )
+                else:
+                    print(f"⚠ 无法构建第一页URL，使用当前页作为第一页", flush=True)
+                    print(f"📄 开始提取第一页内容...", flush=True)
+                    all_content_parts, all_images = self._extract_page_content(
+                        html, all_content_parts, all_images, page_num=1, task_type=task_type
+                    )
+            else:
+                # 正常情况，当前页是第一页
+                print(f"📄 开始提取第一页内容...", flush=True)
+                all_content_parts, all_images = self._extract_page_content(
+                    html, all_content_parts, all_images, page_num=1, task_type=task_type
+                )
             
-            # 第二步：检测是否有后续页面
+            # 检测总页数
             total_pages = self.extract_page_numbers(html)
             print(f"📊 检测到总页数: {total_pages}", flush=True)
             
-            # 第三步：如果有多页，逐页获取内容
+            # 如果有多页，逐页获取内容
             if total_pages > 1:
                 print(f"🔄 多分页模式：开始遍历第 2-{total_pages} 页...", flush=True)
-                for page_num in range(2, total_pages + 1):
+                # 限制最大遍历页数，避免过多请求
+                max_crawl_pages = min(total_pages, 20)
+                for page_num in range(2, max_crawl_pages + 1):
                     # 构建分页URL
                     page_url = self.build_pagination_url(url, page_num)
                     if not page_url:
@@ -254,6 +360,9 @@ class ForumCrawler:
                 content = ''.join(formatted_parts)
             else:
                 content = '暂无内容'
+            
+            # 输出标题，供后端解析并更新任务名称
+            print(f"TITLE:{title}", flush=True)
             
             return {
                 'title': title,
@@ -358,33 +467,9 @@ class ForumCrawler:
             traceback.print_exc()
             return None
     
-    def crawl_forum(self, forum_url, task_type='image', max_depth=1):
-        """爬取论坛内容"""
+    def _save_post(self, post_data, forum_url, task_type):
+        """保存单个帖子到数据库"""
         try:
-            print(f"开始爬虫任务 {self.task_id}", flush=True)
-            print(f"URL: {forum_url}", flush=True)
-            print(f"Type: {task_type}", flush=True)
-            
-            # 获取页面
-            html = self.fetch_page(forum_url)
-            if not html:
-                print(f"✗ 无法获取页面内容", file=sys.stderr, flush=True)
-                return {
-                    'success': False,
-                    'task_id': self.task_id,
-                    'error': '无法获取页面内容',
-                }
-            
-            # 解析页面（获取所有页面的楼主内容）
-            post_data = self.parse_t66y_post(forum_url, html, task_type)
-            if not post_data:
-                print(f"✗ 解析页面失败", file=sys.stderr, flush=True)
-                return {
-                    'success': False,
-                    'task_id': self.task_id,
-                    'error': '解析页面失败',
-                }
-            
             # 初始化图片目录
             initialize_image_dirs()
             
@@ -507,164 +592,194 @@ class ForumCrawler:
                     upsert=True  # 如果不存在则插入
                 )
                 print(f"✓ 文章已保存: {post['title']}", flush=True)
-                print(f"TITLE:{post['title']}", flush=True)
-                print(f"PROGRESS:100", flush=True)
-                print(f"CRAWLED:1", flush=True)
-                
-                return {
-                    'success': True,
-                    'task_id': self.task_id,
-                    'total_posts': 1,
-                    'message': '爬虫任务完成'
-                }
+                return True
             except Exception as e:
                 print(f"✗ 保存数据库失败: {e}", file=sys.stderr, flush=True)
                 import traceback
                 traceback.print_exc()
-                return {
-                    'success': False,
-                    'task_id': self.task_id,
-                    'error': str(e),
-                }
+                return False
+        except Exception as e:
+            print(f"✗ 保存帖子失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    def _is_post_exist(self, post_url):
+        """检查帖子是否已经存在于数据库中"""
+        try:
+            # 检查是否已存在该帖子
+            existing_post = self.posts_collection.find_one({'sourceUrl': post_url})
+            return existing_post is not None
+        except Exception as e:
+            print(f"⚠ 检查帖子是否存在失败: {e}", file=sys.stderr, flush=True)
+            return False
+    
+    def crawl_forum(self, forum_url, task_type='image', max_depth=1, max_pages=10):
+        """爬取论坛内容 - 支持单帖和批量采集"""
+        try:
+            print(f"开始爬虫任务 {self.task_id}", flush=True)
+            print(f"URL: {forum_url}", flush=True)
+            print(f"Type: {task_type}", flush=True)
+            print(f"Max Pages: {max_pages}", flush=True)
             
-            # 根据任务类型决定是否保存内容
-            if task_type == 'novel':
-                # 文本类：只保存文本内容，不保存图片
-                print(f"✓ 获取楼主文本内容: {len(post_data['content'])} 字符", flush=True)
-                media = []
-            elif task_type == 'image':
-                # 图片类：只保存图片，清空文本内容
-                if post_data['images']:
-                    print(f"✓ 获取楼主图片: {len(post_data['images'])} 张", flush=True)
-                    
-                    # 下载所有图片
-                    print(f"开始下载图片...", flush=True)
-                    image_urls = [img['url'] for img in post_data['images']]
-                    download_results = download_images(image_urls, self.task_id)
-                    
-                    # 将下载后的本地路径保存到 media
-                    media = []
-                    success_count = 0
-                    for i, result in enumerate(download_results):
-                        if result['success']:
-                            media.append({
-                                'url': result['local_path'],
-                                'originalUrl': image_urls[i],
-                                'description': f'楼主图片 {i + 1}'
-                            })
-                            success_count += 1
-                        else:
-                            print(f"⚠ 图片下载失败 {i + 1}: {result['error']}", flush=True)
-                    
-                    print(f"✓ 图片下载完成: {success_count}/{len(post_data['images'])} 成功", flush=True)
-                else:
-                    print(f"⚠ 楼主未发布图片，使用占位符", flush=True)
-                    media = [{
-                        'url': 'https://via.placeholder.com/300x200?text=No+Image',
-                        'description': '楼主未发布图片'
-                    }]
-                # 图片类不保存文本，只保存标题
-                post_data['content'] = f"楼主发布了 {len(post_data['images'])} 张图片"
-            else:  # mixed
-                # 混合类：既保存文本也保存图片
-                print(f"✓ 获取楼主内容: {len(post_data['content'])} 字符, {len(post_data['images'])} 张图片", flush=True)
+            # 检查是否为批量采集（根据URL格式判断）
+            is_batch = False
+            # 如果URL包含版块特征或没有明确的tid，则视为批量采集
+            if 'read.php?tid=' not in forum_url and 'htm_data/' not in forum_url:
+                is_batch = True
+            
+            total_posts = 0
+            crawled_count = 0
+            skipped_count = 0
+            
+            if is_batch:
+                print("🔄 批量采集模式: 开始爬取版块所有帖子", flush=True)
                 
-                if post_data['images']:
-                    # 下载所有图片
-                    print(f"开始下载图片...", flush=True)
-                    image_urls = [img['url'] for img in post_data['images']]
-                    download_results = download_images(image_urls, self.task_id)
-                    
-                    # 将下载后的本地路径保存到 media
-                    media = []
-                    success_count = 0
-                    for i, result in enumerate(download_results):
-                        if result['success']:
-                            media.append({
-                                'url': result['local_path'],
-                                'originalUrl': image_urls[i],
-                                'description': f'楼主图片 {i + 1}'
-                            })
-                            success_count += 1
-                        else:
-                            print(f"⚠ 图片下载失败 {i + 1}: {result['error']}", flush=True)
-                    
-                    print(f"✓ 图片下载完成: {success_count}/{len(post_data['images'])} 成功", flush=True)
+                # 获取版块第一页
+                html = self.fetch_page(forum_url)
+                if not html:
+                    print(f"✗ 无法获取版块内容", file=sys.stderr, flush=True)
+                    return {
+                        'success': False,
+                        'task_id': self.task_id,
+                        'error': '无法获取版块内容',
+                    }
+                
+                # 提取第一页的帖子链接
+                all_post_links = self.extract_post_links_from_section(html)
+                
+                # 直接使用用户设置的最大爬取页数作为限制
+                print(f"📋 使用用户设置的最大爬取页数: {max_pages}", flush=True)
+                max_section_pages = max_pages
+                print(f"� 根据用户设置，实际爬取版块页数: 1-{max_section_pages}", flush=True)
+                
+                # 如果用户设置了爬取多页，并且当前URL不是第1页，则从第1页开始爬取
+                if 'page=' in forum_url and forum_url.endswith('page=1'):
+                    # 如果当前URL是第1页，则爬取从第2页开始的剩余页面
+                    if max_section_pages > 1:
+                        print(f"🔄 多分页模式：开始遍历版块第 2-{max_section_pages} 页...", flush=True)
+                        for page_num in range(2, max_section_pages + 1):
+                            section_page_url = self.build_section_pagination_url(forum_url, page_num)
+                            print(f"📄 开始爬取版块第 {page_num} 页: {section_page_url}", flush=True)
+                            
+                            section_page_html = self.fetch_page(section_page_url)
+                            if section_page_html:
+                                page_links = self.extract_post_links_from_section(section_page_html)
+                                all_post_links.extend(page_links)
+                            
+                            # 随机延迟避免被封（延长到3-5秒）
+                            import time
+                            import random
+                            delay = random.uniform(3, 5)
+                            print(f"⏳ 处理完帖子后等待 {delay:.1f} 秒...", flush=True)
+                            time.sleep(delay)
                 else:
-                    media = []
-            
-            # 构建 MongoDB 文档
-            post = {
-                'title': post_data['title'],
-                'content': post_data['content'],
-                'author': post_data['author'],
-                'sourceUrl': forum_url,
-                'postType': 'image' if task_type == 'image' else 'novel' if task_type == 'novel' else 'text',
-                'likes': 0,
-                'views': 0,
-                'replies': 0,
-                'status': 'active',
-                'tags': [task_type, 't66y'],
-                'taskId': ObjectId(self.task_id),
-                'createdAt': datetime.now(timezone.utc),
-            }
-            
-            # 添加媒体信息
-            if media:
-                post['media'] = media
+                    # 如果当前URL不是第1页，或者只需要爬取1页，则不爬取更多页面
+                    print("📋 只爬取当前页面", flush=True)
+                
+                # 去重
+                unique_post_links = list(set(all_post_links))
+                total_posts = len(unique_post_links)
+                print(f"📋 准备爬取 {total_posts} 个帖子", flush=True)
+                
+                # 爬取每个帖子
+                for i, post_url in enumerate(unique_post_links, 1):
+                    print(f"\n🔍 正在处理帖子 {i}/{total_posts}: {post_url}", flush=True)
+                    
+                    # 检查帖子是否已存在
+                    if self._is_post_exist(post_url):
+                        print(f"📋 帖子已存在，跳过: {post_url}", flush=True)
+                        skipped_count += 1
+                        # 跳过也要延迟
+                        import time
+                        import random
+                        delay = random.uniform(2, 4)
+                        print(f"⏳ 跳过帖子后等待 {delay:.1f} 秒...", flush=True)
+                        time.sleep(delay)
+                        continue
+                    
+                    # 更新进度
+                    progress = int((i / total_posts) * 100)
+                    print(f"PROGRESS:{progress}", flush=True)
+                    
+                    # 获取帖子页面
+                    post_html = self.fetch_page(post_url)
+                    if not post_html:
+                        print(f"⚠ 无法获取帖子内容，跳过: {post_url}", flush=True)
+                        continue
+                    
+                    # 解析帖子
+                    post_data = self.parse_t66y_post(post_url, post_html, task_type)
+                    if not post_data:
+                        print(f"⚠ 解析帖子失败，跳过: {post_url}", flush=True)
+                        continue
+                    
+                    # 保存帖子
+                    if self._save_post(post_data, post_url, task_type):
+                        crawled_count += 1
+                        print(f"CRAWLED:{crawled_count}", flush=True)
+                        
+                        # 批量模式下，使用第一个帖子的标题作为任务名称
+                        if total_posts > 1 and crawled_count == 1:
+                            print(f"TITLE:{post_data['title']}", flush=True)
+                    
+                    # 随机延迟避免被封（延长到3-5秒）
+                    import time
+                    import random
+                    delay = random.uniform(3, 5)
+                    print(f"⏳ 处理完帖子后等待 {delay:.1f} 秒...", flush=True)
+                    time.sleep(delay)
             else:
-                # 如果没有媒体，添加占位符
-                post['media'] = [{
-                    'url': 'https://via.placeholder.com/300x200?text=No+Content',
-                    'description': '暂无媒体内容'
-                }]
-            
-            # 保存到数据库
-            try:
-                # 使用 upsert 方式，避免重复键错误
-                result = self.posts_collection.update_one(
-                    {'sourceUrl': forum_url},  # 查询条件
-                    {
-                        '$set': {
-                            'title': post['title'],
-                            'content': post['content'],
-                            'author': post['author'],
-                            'postType': post['postType'],
-                            'likes': post['likes'],
-                            'views': post['views'],
-                            'replies': post['replies'],
-                            'status': post['status'],
-                            'tags': post['tags'],
-                            'taskId': post['taskId'],
-                            'media': post['media'],
-                            'updatedAt': datetime.now(timezone.utc),
-                        },
-                        '$setOnInsert': {
-                            'createdAt': datetime.now(timezone.utc),
-                        }
-                    },
-                    upsert=True  # 如果不存在则插入
-                )
-                print(f"✓ 文章已保存: {post['title']}", flush=True)
-                print(f"TITLE:{post['title']}", flush=True)
-                print(f"PROGRESS:100", flush=True)
-                print(f"CRAWLED:1", flush=True)
+                print("📄 单帖采集模式: 开始爬取单个帖子", flush=True)
+                total_posts = 1
                 
-                return {
-                    'success': True,
-                    'task_id': self.task_id,
-                    'total_posts': 1,
-                    'message': '爬虫任务完成'
-                }
-            except Exception as e:
-                print(f"✗ 保存数据库失败: {e}", file=sys.stderr, flush=True)
-                import traceback
-                traceback.print_exc()
-                return {
-                    'success': False,
-                    'task_id': self.task_id,
-                    'error': str(e),
-                }
+                # 检查帖子是否已存在
+                if self._is_post_exist(forum_url):
+                    print(f"📋 帖子已存在，跳过: {forum_url}", flush=True)
+                    return {
+                        'success': True,
+                        'task_id': self.task_id,
+                        'total_posts': 1,
+                        'crawled_posts': 0,
+                        'message': '帖子已存在，跳过爬取'
+                    }
+                
+                # 获取页面
+                html = self.fetch_page(forum_url)
+                if not html:
+                    print(f"✗ 无法获取页面内容", file=sys.stderr, flush=True)
+                    return {
+                        'success': False,
+                        'task_id': self.task_id,
+                        'error': '无法获取页面内容',
+                    }
+                
+                # 解析页面（获取所有页面的楼主内容）
+                post_data = self.parse_t66y_post(forum_url, html, task_type)
+                if not post_data:
+                    print(f"✗ 解析页面失败", file=sys.stderr, flush=True)
+                    return {
+                        'success': False,
+                        'task_id': self.task_id,
+                        'error': '解析页面失败',
+                    }
+                
+                # 保存帖子
+                if self._save_post(post_data, forum_url, task_type):
+                    crawled_count = 1
+                    print(f"CRAWLED:1", flush=True)
+            
+            print(f"\n🎉 爬虫任务完成!", flush=True)
+            print(f"📊 总帖子数: {total_posts}, 成功爬取: {crawled_count}, 跳过已存在: {skipped_count}", flush=True)
+            
+            return {
+                'success': True,
+                'task_id': self.task_id,
+                'total_posts': total_posts,
+                'crawled_posts': crawled_count,
+                'skipped_posts': skipped_count,
+                'message': '爬虫任务完成'
+            }
         
         except Exception as e:
             print(f"✗ 爬虫执行失败: {e}", file=sys.stderr, flush=True)
@@ -690,6 +805,7 @@ def main():
     parser.add_argument('--max-depth', type=int, default=1, help='最大深度')
     parser.add_argument('--delay', type=int, default=1000, help='请求延迟')
     parser.add_argument('--timeout', type=int, default=600000, help='超时时间 (ms)')
+    parser.add_argument('--max-pages', type=int, default=10, help='最大爬取页数 (针对批量采集)')
     
     args = parser.parse_args()
     
@@ -702,7 +818,7 @@ def main():
     crawler = None
     try:
         crawler = ForumCrawler(args.task_id, mongodb_uri)
-        result = crawler.crawl_forum(args.url, args.type, args.max_depth)
+        result = crawler.crawl_forum(args.url, args.type, args.max_depth, args.max_pages)
         
         if result['success']:
             print(f"CRAWLED:{result.get('total_posts', 0)}", flush=True)

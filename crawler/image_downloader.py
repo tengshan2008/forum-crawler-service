@@ -6,6 +6,9 @@
 
 import os
 import requests
+# 忽略urllib3的InsecureRequestWarning警告
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import hashlib
 from urllib.parse import urlparse
 import logging

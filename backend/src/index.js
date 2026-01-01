@@ -10,6 +10,7 @@ const { connectDB } = require('./config/database');
 const { crawlerQueue } = require('./services/crawlerQueue');
 const { executeCrawler } = require('./services/crawlerExecutor');
 const Task = require('./models/Task');
+const schedulerService = require('./services/schedulerService');
 
 const app = express();
 
@@ -65,6 +66,7 @@ const startServer = async () => {
         await Task.findByIdAndUpdate(taskId, {
           status: 'running',
           progress: 5,
+          lastCrawlTime: new Date(),
         });
 
         // 执行爬虫
@@ -72,16 +74,19 @@ const startServer = async () => {
 
         // 获取任务信息，检查是否需要从标题更新名称
         const task = await Task.findById(taskId);
-        if (!task.name && result.title) {
-          // 如果任务名称为空，使用爬虫返回的标题
+        if ((!task.name || task.name === '') && result.title) {
+          // 如果任务名称为空或未设置，使用爬虫返回的标题
           task.name = result.title;
           await task.save();
+          console.log(`[任务] 任务名称已更新为: ${result.title}`);
         }
 
         // 更新任务状态为完成
         await Task.findByIdAndUpdate(taskId, {
           status: 'completed',
           progress: 100,
+          crawledItems: result.crawled_posts || 1,
+          totalItems: result.total_posts || 1,
           endTime: new Date(),
         });
 
@@ -98,7 +103,7 @@ const startServer = async () => {
             errorLog: [
               {
                 timestamp: new Date(),
-                error: error.message,
+                message: error.message,
               },
             ],
           },
@@ -111,6 +116,9 @@ const startServer = async () => {
 
     console.log('✓ 爬虫队列已初始化');
 
+    // 启动定时任务调度器
+    await schedulerService.start();
+
     const server = app.listen(config.port, config.host, () => {
       console.log(`✓ Server running on http://${config.host}:${config.port}`);
       console.log(`✓ Environment: ${config.env}`);
@@ -119,6 +127,10 @@ const startServer = async () => {
     // Graceful shutdown
     process.on('SIGTERM', async () => {
       console.log('SIGTERM signal received: closing HTTP server');
+      
+      // 停止定时任务调度器
+      schedulerService.stop();
+      
       await crawlerQueue.close();
       server.close(() => {
         console.log('HTTP server closed');
@@ -127,6 +139,14 @@ const startServer = async () => {
     });
   } catch (error) {
     console.error('Failed to start server:', error);
+    
+    // 如果启动失败，尝试停止定时任务调度器
+    try {
+      schedulerService.stop();
+    } catch (stopError) {
+      console.error('Error stopping scheduler:', stopError);
+    }
+    
     process.exit(1);
   }
 };
