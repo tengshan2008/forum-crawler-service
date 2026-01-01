@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message } from 'antd';
+import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Statistic } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, CopyOutlined } from '@ant-design/icons';
 import { postApi } from '../services/api';
 import dayjs from 'dayjs';
@@ -9,15 +9,55 @@ const PostPreview = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();
   const [posts, setPosts] = useState([]);
+  const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 12, total: 0 });
   const [contentPagination, setContentPagination] = useState({}); // 用于存储每篇文章的内容分页状态
 
   useEffect(() => {
     if (taskId) {
+      fetchTaskInfo();
       fetchPosts();
     }
   }, [taskId, pagination.current, pagination.pageSize]);
+
+  const fetchTaskInfo = async () => {
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`);
+      const result = await response.json();
+      if (result.data) {
+        setTask(result.data);
+      }
+    } catch (error) {
+      console.error('Error fetching task info:', error);
+    }
+  };
+
+  };
+
+  // 获取跳过原因的颜色
+  const getReasonColor = (reason) => {
+    const colors = {
+      'duplicate': 'orange',
+      'network_error': 'red',
+      'parse_failed': 'volcano',
+      'update_check_failed': 'gold',
+      'other': 'default'
+    };
+    return colors[reason] || 'default';
+  };
+
+  // 获取跳过原因的描述
+  const getReasonLabel = (reason) => {
+    const labels = {
+      'duplicate': '重复帖子',
+      'network_error': '网络错误',
+      'parse_failed': '解析失败',
+      'update_check_failed': '更新检查失败',
+      'other': '其他'
+    };
+    return labels[reason] || reason;
+  };
 
   const handleDownloadText = (post) => {
     try {
@@ -181,6 +221,73 @@ const PostPreview = () => {
             返回任务列表
           </Button>
         </div>
+
+        {/* 任务统计信息 */}
+        {task && (
+          <Card style={{ marginBottom: 24 }} title="采集统计">
+            <Row gutter={[16, 16]}>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#1890ff' }}>
+                    {task.crawledItems || 0}
+                  </div>
+                  <div style={{ color: '#666', marginTop: '8px' }}>已采集</div>
+                </div>
+              </Col>
+              {task.skippedItems > 0 && (
+                <Col xs={12} sm={6}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#faad14' }}>
+                      {task.skippedItems}
+                    </div>
+                    <div style={{ color: '#666', marginTop: '8px' }}>
+                      <Tooltip title="重复或其他原因被跳过">已跳过</Tooltip>
+                    </div>
+                  </div>
+                </Col>
+              )}
+              {task.failedItems > 0 && (
+                <Col xs={12} sm={6}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#f5222d' }}>
+                      {task.failedItems}
+                    </div>
+                    <div style={{ color: '#666', marginTop: '8px' }}>
+                      <Tooltip title="网络错误或解析失败">采集失败</Tooltip>
+                    </div>
+                  </div>
+                </Col>
+              )}
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#52c41a' }}>
+                    {task.status === 'completed' ? '✓' : task.status === 'running' ? '...' : task.status}
+                  </div>
+                  <div style={{ color: '#666', marginTop: '8px' }}>状态</div>
+                </div>
+              </Col>
+            </Row>
+
+            {/* 显示跳过原因摘要 */}
+            {task.skipReasons && task.skipReasons.length > 0 && (
+              <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #f0f0f0' }}>
+                <div style={{ marginBottom: '12px', fontWeight: 'bold' }}>跳过原因统计:</div>
+                <div>
+                  {Object.entries(
+                    task.skipReasons.reduce((acc, reason) => {
+                      acc[reason.reason] = (acc[reason.reason] || 0) + 1;
+                      return acc;
+                    }, {})
+                  ).map(([reason, count]) => (
+                    <Tag key={reason} color={getReasonColor(reason)} style={{ marginRight: '8px', marginBottom: '8px' }}>
+                      {getReasonLabel(reason)}: {count}
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
         {posts.map((post) => (
           <Card
             key={post._id}

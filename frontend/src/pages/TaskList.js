@@ -89,6 +89,30 @@ const TaskList = () => {
     navigate(`/preview/${taskId}`);
   };
 
+  // 获取跳过原因的颜色
+  const getReasonColor = (reason) => {
+    const colors = {
+      'duplicate': 'orange',
+      'network_error': 'red',
+      'parse_failed': 'volcano',
+      'update_check_failed': 'gold',
+      'other': 'default'
+    };
+    return colors[reason] || 'default';
+  };
+
+  // 获取跳过原因的描述
+  const getReasonLabel = (reason) => {
+    const labels = {
+      'duplicate': '重复帖子',
+      'network_error': '网络错误',
+      'parse_failed': '解析失败',
+      'update_check_failed': '更新检查失败',
+      'other': '其他'
+    };
+    return labels[reason] || reason;
+  };
+
   const handleModalOk = useCallback(async () => {
     try {
       const values = await form.validateFields();
@@ -191,6 +215,28 @@ const TaskList = () => {
       key: 'crawledItems',
     },
     {
+      title: '跳过/失败',
+      dataIndex: 'skippedItems',
+      key: 'skipped',
+      render: (_, record) => (
+        <Space size="small">
+          {record.skippedItems > 0 && (
+            <Tooltip title="重复或其他原因被跳过的帖子">
+              <Tag color="orange">{record.skippedItems} 跳过</Tag>
+            </Tooltip>
+          )}
+          {record.failedItems > 0 && (
+            <Tooltip title="网络错误或解析失败的帖子">
+              <Tag color="red">{record.failedItems} 失败</Tag>
+            </Tooltip>
+          )}
+          {record.skippedItems === 0 && record.failedItems === 0 && (
+            <span style={{ color: '#999' }}>无</span>
+          )}
+        </Space>
+      ),
+    },
+    {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
@@ -253,6 +299,59 @@ const TaskList = () => {
           showTotal: (total) => `共 ${total} 条`,
         }}
         onChange={(pag) => setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })}
+        expandable={{
+          expandedRowRender: (record) => {
+            const hasSkipReasons = record.skipReasons && record.skipReasons.length > 0;
+            
+            return (
+              <div style={{ padding: '16px 0' }}>
+                {hasSkipReasons ? (
+                  <div>
+                    <h4 style={{ marginBottom: '12px' }}>
+                      跳过/失败原因详情 ({record.skipReasons.length})
+                    </h4>
+                    <div style={{ 
+                      maxHeight: '300px', 
+                      overflowY: 'auto',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))',
+                      gap: '12px'
+                    }}>
+                      {record.skipReasons.map((reason, idx) => (
+                        <div key={idx} style={{
+                          padding: '12px',
+                          border: '1px solid #f0f0f0',
+                          borderRadius: '4px',
+                          backgroundColor: '#fafafa'
+                        }}>
+                          <div style={{ marginBottom: '8px' }}>
+                            <Tag color={getReasonColor(reason.reason)}>
+                              {getReasonLabel(reason.reason)}
+                            </Tag>
+                            <span style={{ color: '#666', fontSize: '12px', marginLeft: '8px' }}>
+                              {dayjs(reason.timestamp).format('YYYY-MM-DD HH:mm:ss')}
+                            </span>
+                          </div>
+                          <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>
+                            <strong>链接:</strong> {reason.url}
+                          </div>
+                          {reason.message && (
+                            <div style={{ color: '#999', fontSize: '12px' }}>
+                              <strong>说明:</strong> {reason.message}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ color: '#999' }}>本次采集无跳过或失败的帖子</span>
+                )}
+              </div>
+            );
+          },
+          rowExpandable: (record) => record.skipReasons && record.skipReasons.length > 0,
+        }}
       />
 
       <Modal

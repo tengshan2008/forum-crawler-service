@@ -23,6 +23,10 @@ const postSchema = new mongoose.Schema(
       trim: true,
     },
     content: String,
+    contentHash: {
+      type: String,
+      description: '内容的 MD5 哈希值，用于检测重复内容',
+    },
     postType: {
       type: String,
       enum: ['novel', 'image', 'text'],
@@ -76,6 +80,7 @@ const postSchema = new mongoose.Schema(
 
 postSchema.index({ taskId: 1 });
 postSchema.index({ sourceUrl: 1 });
+postSchema.index({ contentHash: 1 });
 postSchema.index({ postType: 1 });
 postSchema.index({ createdAt: -1 });
 

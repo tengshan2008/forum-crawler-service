@@ -54,6 +54,25 @@ const taskSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    skippedItems: {
+      type: Number,
+      default: 0,
+    },
+    skipReasons: [
+      {
+        url: String,
+        reason: {
+          type: String,
+          enum: ['duplicate', 'update_check_failed', 'parse_failed', 'network_error', 'other'],
+          default: 'other',
+        },
+        message: String,
+        timestamp: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
     config: {
       maxDepth: {
         type: Number,

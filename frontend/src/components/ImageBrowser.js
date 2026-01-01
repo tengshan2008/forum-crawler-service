@@ -62,7 +62,7 @@ const ImageBrowser = () => {
   const fetchImages = async (page = 1) => {
     setLoading(true);
     try {
-      const res = await browseApi.getImages({ page, limit: 20, taskId: filters.taskId });
+      const res = await browseApi.getImages({ page, limit: 12, taskId: filters.taskId });
       setImages(res.data.data || []);
       setPagination({
         current: res.data.pagination.page,
@@ -80,7 +80,7 @@ const ImageBrowser = () => {
   const handleSearch = async () => {
     setLoading(true);
     try {
-      const searchData = { page: 1, limit: 20 };
+      const searchData = { page: 1, limit: 12 };
       if (filters.keyword) searchData.keyword = filters.keyword;
       if (filters.taskId) searchData.taskId = filters.taskId;
       if (filters.dateRange && filters.dateRange.length === 2) {

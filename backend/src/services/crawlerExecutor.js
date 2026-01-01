@@ -61,6 +61,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       let output = '';
       let errorOutput = '';
       let crawlerOutput = {}; // 用于存储从爬虫输出中解析的信息（如标题）
+      let crawlerResult = null; // 用于存储爬虫返回的 JSON 结果
 
       // 设置超时
       const timer = setTimeout(() => {
@@ -104,6 +105,16 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
                 crawlerOutput.title = title;
               }
             }
+            // 爬虫返回的 JSON 结果: RESULT:{...}
+            else if (line.includes('RESULT:')) {
+              try {
+                const jsonStr = line.split('RESULT:')[1];
+                crawlerResult = JSON.parse(jsonStr);
+                console.log(`[爬虫] 解析到爬虫结果:`, crawlerResult);
+              } catch (e) {
+                console.warn(`[爬虫] 解析爬虫 JSON 结果失败:`, e.message);
+              }
+            }
           }
         } catch (e) {
           // 忽略解析错误
@@ -123,38 +134,43 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
         if (code === 0) {
           console.log(`[爬虫] 任务 ${taskId} 完成`);
           
+          // 构建更新数据
+          const updateData = {
+            status: 'completed',
+            progress: 100,
+            endTime: new Date(),
+          };
+          
+          // 如果有爬虫结果，更新统计信息
+          if (crawlerResult) {
+            if (crawlerResult.crawled_posts !== undefined) {
+              updateData.crawledItems = crawlerResult.crawled_posts;
+            }
+            if (crawlerResult.skipped_posts !== undefined) {
+              updateData.skippedItems = crawlerResult.skipped_posts;
+            }
+            if (crawlerResult.failed_posts !== undefined) {
+              updateData.failedItems = crawlerResult.failed_posts;
+            }
+            // 保存跳过原因详情
+            if (crawlerResult.skip_details && Array.isArray(crawlerResult.skip_details)) {
+              updateData.skipReasons = crawlerResult.skip_details;
+              console.log(`[爬虫] 保存跳过原因: ${crawlerResult.skip_details.length} 条`);
+            }
+          }
+          
           // 如果解析到标题，更新任务名称
           if (crawlerOutput.title) {
-            try {
-              await Task.findByIdAndUpdate(
-                taskId,
-                { 
-                  name: crawlerOutput.title, 
-                  status: 'completed',
-                  progress: 100,
-                  endTime: new Date(),
-                },
-                { new: true }
-              );
+            updateData.name = crawlerOutput.title;
+          }
+          
+          try {
+            await Task.findByIdAndUpdate(taskId, updateData, { new: true });
+            if (crawlerOutput.title) {
               console.log(`[爬虫] 更新任务 ${taskId} 名称为: ${crawlerOutput.title}`);
-            } catch (error) {
-              console.error(`[爬虫] 更新任务名称失败: ${error.message}`);
             }
-          } else {
-            // 没有标题，标记任务为完成
-            try {
-              await Task.findByIdAndUpdate(
-                taskId,
-                { 
-                  status: 'completed',
-                  progress: 100,
-                  endTime: new Date(),
-                },
-                { new: true }
-              );
-            } catch (error) {
-              console.error(`[爬虫] 更新任务状态失败: ${error.message}`);
-            }
+          } catch (error) {
+            console.error(`[爬虫] 更新任务失败: ${error.message}`);
           }
           
           resolve({
@@ -162,6 +178,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
             taskId,
             output,
             ...crawlerOutput, // 包含从输出中解析的信息（如标题）
+            ...crawlerResult, // 包含爬虫返回的详细结果
           });
         } else {
           console.error(`[爬虫] 任务 ${taskId} 失败，退出码: ${code}`);

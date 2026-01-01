@@ -18,6 +18,7 @@ from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 import re
 import logging
+import hashlib
 
 # 导入 MongoDB 客户端
 from pymongo import MongoClient
@@ -41,6 +42,27 @@ class ForumCrawler:
         self.posts_collection = None
         self.session = requests.Session()
         self.connect_db()
+    
+    def _calculate_content_hash(self, content):
+        """计算内容的 MD5 哈希值用于去重
+        
+        Args:
+            content: 帖子内容字符串
+            
+        Returns:
+            16位十六进制哈希值
+        """
+        try:
+            # 规范化内容：去除前后空白，规范化换行
+            normalized_content = content.strip()
+            normalized_content = re.sub(r'\s+', ' ', normalized_content)
+            
+            # 计算 MD5 哈希
+            content_hash = hashlib.md5(normalized_content.encode('utf-8')).hexdigest()
+            return content_hash
+        except Exception as e:
+            print(f"⚠ 计算内容哈希失败: {e}", file=sys.stderr, flush=True)
+            return None
     
     def _get_headers(self):
         """获取反爬虫请求头"""
@@ -646,6 +668,11 @@ class ForumCrawler:
             # 初始化图片目录
             initialize_image_dirs()
             
+            # 计算内容哈希值
+            content_hash = self._calculate_content_hash(post_data['content'])
+            if content_hash:
+                print(f"✓ 内容哈希: {content_hash}", flush=True)
+            
             # 根据任务类型决定是否保存内容
             if task_type == 'novel':
                 # 文本类：只保存文本内容，不保存图片
@@ -728,6 +755,10 @@ class ForumCrawler:
                 'createdAt': datetime.now(timezone.utc),
             }
             
+            # 添加内容哈希
+            if content_hash:
+                post['contentHash'] = content_hash
+            
             # 添加媒体信息
             if media:
                 post['media'] = media
@@ -756,6 +787,7 @@ class ForumCrawler:
                             'tags': post['tags'],
                             'taskId': post['taskId'],
                             'media': post['media'],
+                            'contentHash': post.get('contentHash'),
                             'updatedAt': datetime.now(timezone.utc),
                         },
                         '$setOnInsert': {
@@ -777,15 +809,73 @@ class ForumCrawler:
             traceback.print_exc()
             return False
     
-    def _is_post_exist(self, post_url):
-        """检查帖子是否已经存在于数据库中"""
+    def _is_post_exist(self, post_url, content_hash=None):
+        """检查帖子是否已经存在于数据库中（支持URL和内容哈希去重）
+        
+        Args:
+            post_url: 帖子URL
+            content_hash: 内容哈希值（如果提供，优先使用）
+            
+        Returns:
+            {
+                'exists': bool,
+                'reason': str,  # duplicate|same_url|content_duplicate
+                'message': str
+            }
+        """
         try:
-            # 检查是否已存在该帖子
-            existing_post = self.posts_collection.find_one({'sourceUrl': post_url})
-            return existing_post is not None
+            # 如果提供了内容哈希，先检查是否有相同内容的帖子
+            if content_hash:
+                # 查找相同内容的帖子（不同URL）
+                content_duplicate = self.posts_collection.find_one({'contentHash': content_hash})
+                if content_duplicate:
+                    existing_url = content_duplicate.get('sourceUrl', '未知URL')
+                    return {
+                        'exists': True,
+                        'reason': 'content_duplicate',
+                        'message': f'相同内容已存在于: {existing_url}'
+                    }
+            
+            # 然后检查URL是否存在
+            url_duplicate = self.posts_collection.find_one({'sourceUrl': post_url})
+            if url_duplicate:
+                # URL存在，检查内容是否相同
+                existing_hash = url_duplicate.get('contentHash')
+                if content_hash and existing_hash and existing_hash == content_hash:
+                    # 相同URL，相同内容
+                    return {
+                        'exists': True,
+                        'reason': 'duplicate',
+                        'message': '帖子已存在（相同URL和内容）'
+                    }
+                elif content_hash and existing_hash and existing_hash != content_hash:
+                    # 相同URL，不同内容 - 允许更新
+                    return {
+                        'exists': False,
+                        'reason': None,
+                        'message': None,
+                        'shouldUpdate': True  # 标记应该更新
+                    }
+                else:
+                    # 无法验证内容，保守做法跳过
+                    return {
+                        'exists': True,
+                        'reason': 'same_url',
+                        'message': '相同URL的帖子已存在'
+                    }
+            
+            return {
+                'exists': False,
+                'reason': None,
+                'message': None
+            }
         except Exception as e:
             print(f"⚠ 检查帖子是否存在失败: {e}", file=sys.stderr, flush=True)
-            return False
+            return {
+                'exists': False,
+                'reason': None,
+                'message': None
+            }
     
     def crawl_forum(self, forum_url, task_type='image', max_depth=1, max_pages=10, crawl_type='single'):
         """爬取论坛内容 - 支持单帖和批量采集"""
@@ -801,6 +891,8 @@ class ForumCrawler:
             total_posts = 0
             crawled_count = 0
             skipped_count = 0
+            failed_count = 0
+            skip_details = []  # 记录跳过原因
             
             if is_batch:
                 print("🔄 批量采集模式: 开始逐页爬取版块帖子", flush=True)
@@ -870,17 +962,13 @@ class ForumCrawler:
                 for i, post_url in enumerate(unique_post_links, 1):
                     print(f"\n🔍 正在处理帖子 {i}/{total_posts}: {post_url}", flush=True)
                     
-                    # 检查帖子是否已存在
-                    if self._is_post_exist(post_url):
-                        print(f"📋 帖子已存在，跳过: {post_url}", flush=True)
-                        skipped_count += 1
-                        # 跳过也要延迟
-                        import time
-                        import random
-                        delay = random.uniform(2, 4)
-                        print(f"⏳ 跳过帖子后等待 {delay:.1f} 秒...", flush=True)
-                        time.sleep(delay)
-                        continue
+                    # 先进行快速的URL检查
+                    quick_check = self.posts_collection.find_one({'sourceUrl': post_url})
+                    if quick_check and quick_check.get('contentHash'):
+                        # URL存在且有内容哈希，直接检查是否真正重复
+                        print(f"📋 帖子URL已存在，先获取内容计算哈希进行完整检查...", flush=True)
+                    else:
+                        print(f"📋 帖子未存在或无哈希信息，继续采集...", flush=True)
                     
                     # 更新进度
                     progress = int((i / total_posts) * 100)
@@ -890,6 +978,12 @@ class ForumCrawler:
                     result = self.fetch_page_with_final_url(post_url, request_timeout=60)
                     if not result:
                         print(f"⚠ 无法获取帖子内容，跳过: {post_url}", flush=True)
+                        failed_count += 1
+                        skip_details.append({
+                            'url': post_url,
+                            'reason': 'network_error',
+                            'message': '无法获取页面内容'
+                        })
                         continue
                     
                     post_html = result['html']
@@ -905,7 +999,38 @@ class ForumCrawler:
                     post_data = self.parse_t66y_post(actual_post_url, post_html, task_type)
                     if not post_data:
                         print(f"⚠ 解析帖子失败，跳过: {actual_post_url}", flush=True)
+                        failed_count += 1
+                        skip_details.append({
+                            'url': actual_post_url,
+                            'reason': 'parse_failed',
+                            'message': '解析帖子失败'
+                        })
                         continue
+                    
+                    # 计算内容哈希值
+                    content_hash = self._calculate_content_hash(post_data['content'])
+                    
+                    # 现在进行基于内容哈希的检查
+                    check_result = self._is_post_exist(actual_post_url, content_hash)
+                    if check_result['exists']:
+                        print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_post_url}", flush=True)
+                        skipped_count += 1
+                        skip_details.append({
+                            'url': actual_post_url,
+                            'reason': check_result['reason'],
+                            'message': check_result['message']
+                        })
+                        # 跳过也要延迟
+                        import time
+                        import random
+                        delay = random.uniform(2, 4)
+                        print(f"⏳ 跳过帖子后等待 {delay:.1f} 秒...", flush=True)
+                        time.sleep(delay)
+                        continue
+                    
+                    # 检查是否需要更新
+                    if check_result.get('shouldUpdate'):
+                        print(f"📝 检测到URL相同但内容更新，准备覆盖更新: {actual_post_url}", flush=True)
                     
                     # 保存帖子时使用最终的URL
                     if self._save_post(post_data, actual_post_url, task_type):
@@ -925,17 +1050,6 @@ class ForumCrawler:
             else:
                 print("📄 单帖采集模式: 开始爬取单个帖子", flush=True)
                 total_posts = 1
-                
-                # 检查帖子是否已存在
-                if self._is_post_exist(forum_url):
-                    print(f"📋 帖子已存在，跳过: {forum_url}", flush=True)
-                    return {
-                        'success': True,
-                        'task_id': self.task_id,
-                        'total_posts': 1,
-                        'crawled_posts': 0,
-                        'message': '帖子已存在，跳过爬取'
-                    }
                 
                 # 获取页面，并跟踪最终URL
                 result = self.fetch_page_with_final_url(forum_url)
@@ -966,13 +1080,38 @@ class ForumCrawler:
                         'error': '解析页面失败',
                     }
                 
+                # 计算内容哈希值
+                content_hash = self._calculate_content_hash(post_data['content'])
+                
+                # 检查帖子是否已存在（基于内容哈希）
+                check_result = self._is_post_exist(actual_forum_url, content_hash)
+                if check_result['exists']:
+                    print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_forum_url}", flush=True)
+                    return {
+                        'success': True,
+                        'task_id': self.task_id,
+                        'total_posts': 1,
+                        'crawled_posts': 0,
+                        'skipped_posts': 1,
+                        'skip_details': [{
+                            'url': actual_forum_url,
+                            'reason': check_result['reason'],
+                            'message': check_result['message']
+                        }],
+                        'message': '帖子已存在，跳过爬取'
+                    }
+                
+                # 检查是否需要更新
+                if check_result.get('shouldUpdate'):
+                    print(f"📝 检测到URL相同但内容更新，准备覆盖更新: {actual_forum_url}", flush=True)
+                
                 # 保存帖子时使用最终的URL
                 if self._save_post(post_data, actual_forum_url, task_type):
                     crawled_count = 1
                     print(f"CRAWLED:1", flush=True)
             
             print(f"\n🎉 爬虫任务完成!", flush=True)
-            print(f"📊 总帖子数: {total_posts}, 成功爬取: {crawled_count}, 跳过已存在: {skipped_count}", flush=True)
+            print(f"📊 总帖子数: {total_posts}, 成功爬取: {crawled_count}, 跳过已存在: {skipped_count}, 失败: {failed_count}", flush=True)
             
             return {
                 'success': True,
@@ -980,6 +1119,8 @@ class ForumCrawler:
                 'total_posts': total_posts,
                 'crawled_posts': crawled_count,
                 'skipped_posts': skipped_count,
+                'failed_posts': failed_count,
+                'skip_details': skip_details,
                 'message': '爬虫任务完成'
             }
         
@@ -1024,7 +1165,10 @@ def main():
         result = crawler.crawl_forum(args.url, args.type, args.max_depth, args.max_pages, args.crawl_type)
         
         if result['success']:
-            print(f"CRAWLED:{result.get('total_posts', 0)}", flush=True)
+            print(f"CRAWLED:{result.get('crawled_posts', 0)}", flush=True)
+            # 输出 JSON 格式的结果，以便后端解析详细信息
+            import json
+            print(f"RESULT:{json.dumps(result)}", flush=True)
             sys.exit(0)
         else:
             print(f"ERROR:{result.get('error')}", file=sys.stderr, flush=True)
