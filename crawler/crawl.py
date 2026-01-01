@@ -64,6 +64,42 @@ class ForumCrawler:
             print(f"⚠ 计算内容哈希失败: {e}", file=sys.stderr, flush=True)
             return None
     
+    def _extract_forum_last_post_time(self, html):
+        """从论坛列表页面的一条记录中提取最后发表时间
+        
+        查找 data-timestamp 属性的时间戳，例：
+        <a href="/read.php?tid=6861796&page=e&fpage=6#a" class="f10" data-timestamp="1755443268">2025-08-17 23:07</a>
+        
+        Returns:
+            datetime 对象或 None
+        """
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # 查找所有包含 data-timestamp 属性的元素
+            timestamp_elements = soup.find_all(attrs={'data-timestamp': True})
+            
+            if timestamp_elements:
+                for elem in timestamp_elements:
+                    timestamp_str = elem.get('data-timestamp', '')
+                    if timestamp_str:
+                        # 去除末尾的 's' 字符（如果有）
+                        timestamp_str = timestamp_str.rstrip('s')
+                        try:
+                            # 将 Unix 时间戳转换为 datetime
+                            timestamp_int = int(float(timestamp_str))
+                            from datetime import datetime, timezone
+                            dt = datetime.fromtimestamp(timestamp_int, tz=timezone.utc)
+                            print(f"✓ 提取论坛最后发表时间: {dt}", flush=True)
+                            return dt
+                        except (ValueError, OSError):
+                            continue
+            
+            return None
+        except Exception as e:
+            print(f"⚠ 提取论坛最后发表时间失败: {e}", file=sys.stderr, flush=True)
+            return None
+    
     def _get_headers(self):
         """获取反爬虫请求头"""
         import random
@@ -662,8 +698,15 @@ class ForumCrawler:
             traceback.print_exc()
             return content_parts, images
     
-    def _save_post(self, post_data, forum_url, task_type):
-        """保存单个帖子到数据库"""
+    def _save_post(self, post_data, forum_url, task_type, forum_last_post_time=None):
+        """保存单个帖子到数据库
+        
+        Args:
+            post_data: 帖子数据
+            forum_url: 帖子URL
+            task_type: 任务类型
+            forum_last_post_time: 论坛上该帖最后一条回复的时间
+        """
         try:
             # 初始化图片目录
             initialize_image_dirs()
@@ -759,6 +802,10 @@ class ForumCrawler:
             if content_hash:
                 post['contentHash'] = content_hash
             
+            # 添加论坛最后发表时间
+            if forum_last_post_time:
+                post['forumLastPostTime'] = forum_last_post_time
+            
             # 添加媒体信息
             if media:
                 post['media'] = media
@@ -788,6 +835,7 @@ class ForumCrawler:
                             'taskId': post['taskId'],
                             'media': post['media'],
                             'contentHash': post.get('contentHash'),
+                            'forumLastPostTime': post.get('forumLastPostTime'),
                             'updatedAt': datetime.now(timezone.utc),
                         },
                         '$setOnInsert': {
@@ -809,24 +857,91 @@ class ForumCrawler:
             traceback.print_exc()
             return False
     
-    def _is_post_exist(self, post_url, content_hash=None):
-        """检查帖子是否已经存在于数据库中（支持URL和内容哈希去重）
+    def _is_post_exist(self, post_url, content_hash=None, forum_last_post_time=None):
+        """检查帖子是否已经存在于数据库中（支持时间戳快速判断和内容哈希去重）
         
         Args:
             post_url: 帖子URL
             content_hash: 内容哈希值（如果提供，优先使用）
+            forum_last_post_time: 论坛上该帖最后一条回复的时间（用于快速判断是否有更新）
             
         Returns:
             {
                 'exists': bool,
-                'reason': str,  # duplicate|same_url|content_duplicate
-                'message': str
+                'reason': str,  # duplicate|same_url|content_duplicate|unchanged
+                'message': str,
+                'shouldUpdate': bool?  # 是否应该覆盖更新
             }
         """
         try:
-            # 如果提供了内容哈希，先检查是否有相同内容的帖子
+            # 检查URL是否存在
+            url_post = self.posts_collection.find_one({'sourceUrl': post_url})
+            
+            if url_post:
+                # URL存在，进行时间戳快速判断
+                if forum_last_post_time:
+                    existing_time = url_post.get('forumLastPostTime')
+                    
+                    if existing_time:
+                        # 都有时间信息，进行比较
+                        if isinstance(forum_last_post_time, str):
+                            try:
+                                # 解析时间戳字符串
+                                from datetime import datetime
+                                new_time = datetime.fromisoformat(forum_last_post_time.replace('s', ''))
+                            except:
+                                new_time = forum_last_post_time
+                        else:
+                            new_time = forum_last_post_time
+                        
+                        if isinstance(existing_time, str):
+                            try:
+                                from datetime import datetime
+                                existing_time = datetime.fromisoformat(existing_time.replace('s', ''))
+                            except:
+                                pass
+                        
+                        # 比较时间
+                        if str(new_time).split('.')[0] == str(existing_time).split('.')[0]:
+                            # 时间相同，内容没有更新
+                            print(f"⏰ 时间戳相同（{new_time}），帖子未更新，快速跳过", flush=True)
+                            return {
+                                'exists': True,
+                                'reason': 'unchanged',
+                                'message': f'帖子未更新（时间戳相同：{new_time}）'
+                            }
+                        else:
+                            # 时间不同，可能有更新，继续进行内容检查
+                            print(f"⏰ 时间戳不同（旧：{existing_time} → 新：{new_time}），需要检查是否有内容更新", flush=True)
+                
+                # 进行内容哈希检查
+                if content_hash:
+                    existing_hash = url_post.get('contentHash')
+                    if existing_hash and existing_hash == content_hash:
+                        # 相同URL，相同内容
+                        return {
+                            'exists': True,
+                            'reason': 'duplicate',
+                            'message': '帖子已存在（相同URL和内容）'
+                        }
+                    elif existing_hash and existing_hash != content_hash:
+                        # 相同URL，不同内容 - 允许更新
+                        return {
+                            'exists': False,
+                            'reason': None,
+                            'message': None,
+                            'shouldUpdate': True
+                        }
+                
+                # 无法通过哈希验证，保守处理
+                return {
+                    'exists': True,
+                    'reason': 'same_url',
+                    'message': '相同URL的帖子已存在'
+                }
+            
+            # URL不存在，检查内容哈希是否重复
             if content_hash:
-                # 查找相同内容的帖子（不同URL）
                 content_duplicate = self.posts_collection.find_one({'contentHash': content_hash})
                 if content_duplicate:
                     existing_url = content_duplicate.get('sourceUrl', '未知URL')
@@ -834,34 +949,6 @@ class ForumCrawler:
                         'exists': True,
                         'reason': 'content_duplicate',
                         'message': f'相同内容已存在于: {existing_url}'
-                    }
-            
-            # 然后检查URL是否存在
-            url_duplicate = self.posts_collection.find_one({'sourceUrl': post_url})
-            if url_duplicate:
-                # URL存在，检查内容是否相同
-                existing_hash = url_duplicate.get('contentHash')
-                if content_hash and existing_hash and existing_hash == content_hash:
-                    # 相同URL，相同内容
-                    return {
-                        'exists': True,
-                        'reason': 'duplicate',
-                        'message': '帖子已存在（相同URL和内容）'
-                    }
-                elif content_hash and existing_hash and existing_hash != content_hash:
-                    # 相同URL，不同内容 - 允许更新
-                    return {
-                        'exists': False,
-                        'reason': None,
-                        'message': None,
-                        'shouldUpdate': True  # 标记应该更新
-                    }
-                else:
-                    # 无法验证内容，保守做法跳过
-                    return {
-                        'exists': True,
-                        'reason': 'same_url',
-                        'message': '相同URL的帖子已存在'
                     }
             
             return {

@@ -27,6 +27,10 @@ const postSchema = new mongoose.Schema(
       type: String,
       description: '内容的 MD5 哈希值，用于检测重复内容',
     },
+    forumLastPostTime: {
+      type: Date,
+      description: '论坛上该帖子最后一条回复的时间戳（用于快速判断是否有更新）',
+    },
     postType: {
       type: String,
       enum: ['novel', 'image', 'text'],
@@ -81,6 +85,7 @@ const postSchema = new mongoose.Schema(
 postSchema.index({ taskId: 1 });
 postSchema.index({ sourceUrl: 1 });
 postSchema.index({ contentHash: 1 });
+postSchema.index({ forumLastPostTime: 1 });
 postSchema.index({ postType: 1 });
 postSchema.index({ createdAt: -1 });
 
