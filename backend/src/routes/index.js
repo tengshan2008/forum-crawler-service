@@ -2,6 +2,7 @@ const express = require('express');
 const taskRoutes = require('./taskRoutes');
 const postRoutes = require('./postRoutes');
 const authRoutes = require('./authRoutes');
+const browseRoutes = require('./browseRoutes');
 
 const router = express.Router();
 
@@ -9,6 +10,7 @@ const router = express.Router();
 router.use('/api/auth', authRoutes);
 router.use('/api/tasks', taskRoutes);
 router.use('/api/posts', postRoutes);
+router.use('/api/browse', browseRoutes);
 
 // Health check
 router.get('/health', (req, res) => {

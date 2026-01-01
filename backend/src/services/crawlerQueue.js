@@ -25,7 +25,7 @@ crawlerQueue.on('progress', (job, progress) => {
 });
 
 // 添加爬虫任务到队列
-async function addCrawlerTask(taskId, forumUrl, taskType, taskConfig) {
+async function addCrawlerTask(taskId, forumUrl, taskType, taskConfig, crawlType = 'single') {
   try {
     const job = await crawlerQueue.add(
       {
@@ -33,6 +33,7 @@ async function addCrawlerTask(taskId, forumUrl, taskType, taskConfig) {
         forumUrl,
         taskType,
         config: taskConfig,
+        crawlType,
       },
       {
         attempts: 3, // 重试 3 次

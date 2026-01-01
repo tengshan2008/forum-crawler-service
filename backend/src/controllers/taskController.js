@@ -149,7 +149,8 @@ exports.startTask = catchAsync(async (req, res) => {
       task._id.toString(),
       url,
       task.taskType,
-      task.config
+      task.config,
+      task.crawlType  // 传递采集类型
     );
     console.log(`爬虫任务已加入队列: ${task._id}`);
   } catch (error) {

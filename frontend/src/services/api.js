@@ -94,4 +94,25 @@ export const postApi = {
   delete: (id) => api.delete(`/posts/${id}`),
 };
 
+// Browse API
+export const browseApi = {
+  // Image API
+  getImages: (params) => api.get('/browse/images', { params }),
+  searchImages: (data) => api.post('/browse/images/search', data),
+  
+  // Novel API
+  getNovels: (params) => api.get('/browse/novels', { params }),
+  searchNovels: (data) => api.post('/browse/novels/search', data),
+  getNovelContent: (id) => api.get(`/browse/novels/${id}`),
+  
+  // Collection API
+  createCollection: (data) => api.post('/browse/collections', data),
+  getCollections: (params) => api.get('/browse/collections', { params }),
+  getCollection: (id) => api.get(`/browse/collections/${id}`),
+  updateCollection: (id, data) => api.put(`/browse/collections/${id}`, data),
+  deleteCollection: (id) => api.delete(`/browse/collections/${id}`),
+  addToCollection: (id, data) => api.post(`/browse/collections/${id}/items`, data),
+  removeFromCollection: (id, itemId) => api.delete(`/browse/collections/${id}/items/${itemId}`),
+};
+
 export default api;

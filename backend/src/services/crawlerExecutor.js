@@ -9,9 +9,10 @@ const config = require('../config/config');
  * @param {string} forumUrl - 论坛 URL
  * @param {string} taskType - 任务类型 (novel, image, mixed)
  * @param {object} taskConfig - 爬虫配置
+ * @param {string} crawlType - 采集类型 (single, batch)
  * @returns {Promise} 爬虫执行结果
  */
-async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
+async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType = 'single') {
   return new Promise((resolve, reject) => {
     try {
       // 构建 Python 爬虫命令
@@ -19,13 +20,20 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig) {
       const crawlerScript = '/app/crawler/crawl.py';
       
       // 构建参数
-    const timeout = taskConfig?.timeout || 600000; // 默认 10 分钟超时
+    // 批量采集需要更长的超时时间
+    // 计算方式: maxPages * 平均每页时间(30秒) + 30秒缓冲
     const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
+    const isNeedLongerTimeout = crawlType === 'batch' && maxPages > 3;
+    const defaultTimeout = isNeedLongerTimeout ? 
+      Math.max(1800000, maxPages * 30000 + 30000) :  // 批量采集: 至少30分钟
+      600000;  // 单贴采集: 10分钟
+    const timeout = taskConfig?.timeout || defaultTimeout;
     const args = [
       crawlerScript,
       '--url', forumUrl,
       '--type', taskType,
       '--task-id', taskId,
+      '--crawl-type', crawlType,  // 添加采集类型参数
       '--max-depth', taskConfig?.maxDepth || 3,
       '--delay', taskConfig?.delay || 1000,
       '--timeout', timeout,

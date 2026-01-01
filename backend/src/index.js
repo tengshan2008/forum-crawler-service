@@ -57,7 +57,7 @@ const startServer = async () => {
     // 设置爬虫队列处理
     console.log('⊙ 初始化爬虫队列...');
     crawlerQueue.process(1, async (job) => {
-      const { taskId, forumUrl, taskType, config: taskConfig } = job.data;
+      const { taskId, forumUrl, taskType, config: taskConfig, crawlType } = job.data;
 
       try {
         console.log(`[爬虫队列] 开始处理任务: ${taskId}`);
@@ -70,7 +70,7 @@ const startServer = async () => {
         });
 
         // 执行爬虫
-        const result = await executeCrawler(taskId, forumUrl, taskType, taskConfig);
+        const result = await executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType);
 
         // 获取任务信息，检查是否需要从标题更新名称
         const task = await Task.findById(taskId);
