@@ -33,8 +33,6 @@ const PostPreview = () => {
     }
   };
 
-  };
-
   // 获取跳过原因的颜色
   const getReasonColor = (reason) => {
     const colors = {
