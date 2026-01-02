@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Statistic } from 'antd';
+import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Statistic, Pagination, Select } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, CopyOutlined } from '@ant-design/icons';
 import { postApi } from '../services/api';
 import dayjs from 'dayjs';
@@ -286,6 +286,36 @@ const PostPreview = () => {
             )}
           </Card>
         )}
+
+        {/* 每页数量选择器和分页控件 */}
+        <div style={{ marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ color: '#666' }}>每页显示:</span>
+            <Select
+              value={pagination.pageSize}
+              onChange={(value) => {
+                setPagination({ ...pagination, current: 1, pageSize: value });
+              }}
+              style={{ width: '120px' }}
+              options={[
+                { label: '6 个', value: 6 },
+                { label: '12 个', value: 12 },
+                { label: '24 个', value: 24 },
+                { label: '48 个', value: 48 },
+              ]}
+            />
+          </div>
+          <Pagination
+            current={pagination.current}
+            pageSize={pagination.pageSize}
+            total={pagination.total}
+            onChange={(page) => setPagination({ ...pagination, current: page })}
+            showSizeChanger={false}
+            showQuickJumper
+            showTotal={(total) => `共 ${total} 条`}
+          />
+        </div>
+
         {posts.map((post) => (
           <Card
             key={post._id}

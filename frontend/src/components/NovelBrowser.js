@@ -38,7 +38,7 @@ const NovelBrowser = () => {
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
     current: 1,
-    pageSize: 20,
+    pageSize: 12,
     total: 0,
   });
   const [filters, setFilters] = useState({
@@ -66,10 +66,11 @@ const NovelBrowser = () => {
   }, []);
 
   // 获取小说列表
-  const fetchNovels = async (page = 1) => {
+  const fetchNovels = async (page = 1, pageSize = null) => {
+    const size = pageSize || pagination.pageSize;
     setLoading(true);
     try {
-      const res = await browseApi.getNovels({ page, limit: 20, taskId: filters.taskId });
+      const res = await browseApi.getNovels({ page, limit: size, taskId: filters.taskId });
       setNovels(res.data.data || []);
       setPagination({
         current: res.data.pagination.page,
@@ -116,7 +117,12 @@ const NovelBrowser = () => {
   }, []);
 
   const handlePaginationChange = (page) => {
-    fetchNovels(page);
+    fetchNovels(page, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (value) => {
+    setPagination({ ...pagination, current: 1, pageSize: value });
+    fetchNovels(1, value);
   };
 
   const handleTaskFilter = (value) => {
@@ -368,13 +374,28 @@ const NovelBrowser = () => {
           </div>
 
           {/* 分页 */}
-          <div className='pagination-wrapper'>
+          <div className='pagination-wrapper' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ color: '#666' }}>每页显示:</span>
+              <Select
+                value={pagination.pageSize}
+                onChange={handlePageSizeChange}
+                style={{ width: '120px' }}
+                options={[
+                  { label: '6 个', value: 6 },
+                  { label: '12 个', value: 12 },
+                  { label: '24 个', value: 24 },
+                  { label: '48 个', value: 48 },
+                ]}
+              />
+            </div>
             <Pagination
               current={pagination.current}
               pageSize={pagination.pageSize}
               total={pagination.total}
               onChange={handlePaginationChange}
               showSizeChanger={false}
+              showQuickJumper
               showTotal={(total) => `共 ${total} 部小说`}
             />
           </div>

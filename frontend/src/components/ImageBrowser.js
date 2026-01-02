@@ -34,7 +34,7 @@ const ImageBrowser = () => {
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
     current: 1,
-    pageSize: 20,
+    pageSize: 12,
     total: 0,
   });
   const [filters, setFilters] = useState({
@@ -59,10 +59,11 @@ const ImageBrowser = () => {
   }, []);
 
   // 获取图片列表
-  const fetchImages = async (page = 1) => {
+  const fetchImages = async (page = 1, pageSize = null) => {
+    const size = pageSize || pagination.pageSize;
     setLoading(true);
     try {
-      const res = await browseApi.getImages({ page, limit: 12, taskId: filters.taskId });
+      const res = await browseApi.getImages({ page, limit: size, taskId: filters.taskId });
       setImages(res.data.data || []);
       setPagination({
         current: res.data.pagination.page,
@@ -107,7 +108,12 @@ const ImageBrowser = () => {
   }, []);
 
   const handlePaginationChange = (page) => {
-    fetchImages(page);
+    fetchImages(page, pagination.pageSize);
+  };
+
+  const handlePageSizeChange = (value) => {
+    setPagination({ ...pagination, current: 1, pageSize: value });
+    fetchImages(1, value);
   };
 
   const handleTaskFilter = (value) => {
@@ -307,13 +313,28 @@ const ImageBrowser = () => {
           </div>
 
           {/* 分页 */}
-          <div className='pagination-wrapper'>
+          <div className='pagination-wrapper' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ color: '#666' }}>每页显示:</span>
+              <Select
+                value={pagination.pageSize}
+                onChange={handlePageSizeChange}
+                style={{ width: '120px' }}
+                options={[
+                  { label: '6 个', value: 6 },
+                  { label: '12 个', value: 12 },
+                  { label: '24 个', value: 24 },
+                  { label: '48 个', value: 48 },
+                ]}
+              />
+            </div>
             <Pagination
               current={pagination.current}
               pageSize={pagination.pageSize}
               total={pagination.total}
               onChange={handlePaginationChange}
               showSizeChanger={false}
+              showQuickJumper
               showTotal={(total) => `共 ${total} 张图片`}
             />
           </div>

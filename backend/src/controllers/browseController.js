@@ -8,7 +8,9 @@ const AppError = require('../utils/AppError');
  */
 exports.getImages = catchAsync(async (req, res) => {
   const { page = 1, limit = 20, taskId, sortBy = '-createdAt' } = req.query;
-  const skip = (page - 1) * limit;
+  const pageNum = parseInt(page);
+  const pageSize = parseInt(limit);
+  const skip = (pageNum - 1) * pageSize;
 
   // 构建查询条件
   const filter = {
@@ -20,22 +22,17 @@ exports.getImages = catchAsync(async (req, res) => {
     filter.taskId = taskId;
   }
 
-  // 查询图片
-  const images = await Post.find(filter)
+  // 先查询所有匹配的帖子（不分页）
+  const allPosts = await Post.find(filter)
     .select('title author sourceUrl taskId media createdAt')
-    .sort(sortBy)
-    .skip(skip)
-    .limit(parseInt(limit));
-
-  // 统计总数
-  const total = await Post.countDocuments(filter);
+    .sort(sortBy);
 
   // 扁平化处理：每个图片作为一个单独的项
-  const flatImages = [];
-  images.forEach((post) => {
+  const allImages = [];
+  allPosts.forEach((post) => {
     if (post.media && post.media.length > 0) {
       post.media.forEach((img) => {
-        flatImages.push({
+        allImages.push({
           _id: `${post._id}-${img.url}`,
           postId: post._id,
           postTitle: post.title,
@@ -51,14 +48,18 @@ exports.getImages = catchAsync(async (req, res) => {
     }
   });
 
+  // 对扁平化后的图片进行分页
+  const paginatedImages = allImages.slice(skip, skip + pageSize);
+  const total = allImages.length;
+
   res.status(200).json({
     success: true,
-    data: flatImages,
+    data: paginatedImages,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: pageNum,
+      limit: pageSize,
       total,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / pageSize),
     },
   });
 });
@@ -106,20 +107,21 @@ exports.searchImages = catchAsync(async (req, res) => {
     }
   }
 
-  const skip = (page - 1) * limit;
-  const images = await Post.find(filter)
+  const pageNum = parseInt(page);
+  const pageSize = parseInt(limit);
+  const skip = (pageNum - 1) * pageSize;
+
+  // 先查询所有匹配的帖子（不分页）
+  const allPosts = await Post.find(filter)
     .select('title author sourceUrl taskId media createdAt')
-    .sort(sortBy)
-    .skip(skip)
-    .limit(parseInt(limit));
+    .sort(sortBy);
 
-  const total = await Post.countDocuments(filter);
-
-  const flatImages = [];
-  images.forEach((post) => {
+  // 扁平化处理：每个图片作为一个单独的项
+  const allImages = [];
+  allPosts.forEach((post) => {
     if (post.media && post.media.length > 0) {
       post.media.forEach((img) => {
-        flatImages.push({
+        allImages.push({
           _id: `${post._id}-${img.url}`,
           postId: post._id,
           postTitle: post.title,
@@ -135,14 +137,18 @@ exports.searchImages = catchAsync(async (req, res) => {
     }
   });
 
+  // 对扁平化后的图片进行分页
+  const paginatedImages = allImages.slice(skip, skip + pageSize);
+  const total = allImages.length;
+
   res.status(200).json({
     success: true,
-    data: flatImages,
+    data: paginatedImages,
     pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
+      page: pageNum,
+      limit: pageSize,
       total,
-      pages: Math.ceil(total / limit),
+      pages: Math.ceil(total / pageSize),
     },
   });
 });
