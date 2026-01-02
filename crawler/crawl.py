@@ -256,7 +256,6 @@ class ForumCrawler:
     
     def extract_page_numbers(self, html, max_allowed_pages=100):
         """从HTML中提取总页数 - 带最大页数限制"""
-        print("1111")
         try:
             soup = BeautifulSoup(html, 'html.parser')
             page_numbers = set()
@@ -507,6 +506,7 @@ class ForumCrawler:
                 all_content_parts, all_images = self._extract_page_content(
                     html, all_content_parts, all_images, page_num=1, task_type=task_type
                 )
+
             
             # 检测总页数
             total_pages = self.extract_page_numbers(html)
@@ -576,7 +576,7 @@ class ForumCrawler:
             
             # 对于 t66y 论坛，优先使用 id="conttpc" - 这是最可靠的
             div = soup.find('div', id='conttpc')
-            if div and len(div.get_text(strip=True)) > 50:  # 图片帖子内容可能较少，降低阈值
+            if div and len(div.get_text(strip=True)) > 1:  # 图片帖子内容可能较少，降低阈值
                 content_divs = [div]
                 print(f"✓ 使用选择器: div#conttpc (t66y 专用)", flush=True)
             
