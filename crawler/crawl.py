@@ -256,6 +256,7 @@ class ForumCrawler:
     
     def extract_page_numbers(self, html, max_allowed_pages=100):
         """从HTML中提取总页数 - 带最大页数限制"""
+        print("1111")
         try:
             soup = BeautifulSoup(html, 'html.parser')
             page_numbers = set()
@@ -632,38 +633,38 @@ class ForumCrawler:
                             break
             
             # 6. 作为最后手段，按文本长度查找最大的容器
-            if not content_divs:
-                print(f"⚠ 标准选择器未找到内容，尝试按文本长度搜索...", flush=True)
+            # if not content_divs:
+            #     print(f"⚠ 标准选择器未找到内容，尝试按文本长度搜索...", flush=True)
                 
-                # 查找所有包含文本的 div
-                all_divs = soup.find_all('div')
-                divs_with_text = []
-                for d in all_divs:
-                    text_len = len(d.get_text(strip=True))
-                    if 100 < text_len < 100000:  # 避免过大的容器（可能是整个页面）
-                        divs_with_text.append((d, text_len))
+            #     # 查找所有包含文本的 div
+            #     all_divs = soup.find_all('div')
+            #     divs_with_text = []
+            #     for d in all_divs:
+            #         text_len = len(d.get_text(strip=True))
+            #         if 100 < text_len < 100000:  # 避免过大的容器（可能是整个页面）
+            #             divs_with_text.append((d, text_len))
                 
-                if divs_with_text:
-                    divs_with_text.sort(key=lambda x: x[1], reverse=True)
-                    print(f"  找到 {len(divs_with_text)} 个可能的内容容器", flush=True)
-                    print(f"  最大容器大小: {divs_with_text[0][1]} 字符", flush=True)
+            #     if divs_with_text:
+            #         divs_with_text.sort(key=lambda x: x[1], reverse=True)
+            #         print(f"  找到 {len(divs_with_text)} 个可能的内容容器", flush=True)
+            #         print(f"  最大容器大小: {divs_with_text[0][1]} 字符", flush=True)
                     
-                    # 取前3-5个最大的 div（避免嵌套的重复）
-                    candidates = []
-                    for div, text_len in divs_with_text[:10]:
-                        # 检查是否是其他候选的父节点
-                        is_parent = False
-                        for candidate_div, _ in candidates:
-                            if candidate_div in div.descendants:
-                                is_parent = True
-                                break
-                        if not is_parent:
-                            candidates.append((div, text_len))
-                        if len(candidates) >= 3:
-                            break
+            #         # 取前3-5个最大的 div（避免嵌套的重复）
+            #         candidates = []
+            #         for div, text_len in divs_with_text[:10]:
+            #             # 检查是否是其他候选的父节点
+            #             is_parent = False
+            #             for candidate_div, _ in candidates:
+            #                 if candidate_div in div.descendants:
+            #                     is_parent = True
+            #                     break
+            #             if not is_parent:
+            #                 candidates.append((div, text_len))
+            #             if len(candidates) >= 3:
+            #                 break
                     
-                    content_divs = [d[0] for d in candidates]
-                    print(f"  使用备选容器: {len(content_divs)} 个", flush=True)
+            #         content_divs = [d[0] for d in candidates]
+            #         print(f"  使用备选容器: {len(content_divs)} 个", flush=True)
             
             # 提取内容
             if content_divs:
