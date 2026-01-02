@@ -21,13 +21,28 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       
       // 构建参数
     // 批量采集需要更长的超时时间
-    // 计算方式: maxPages * 平均每页时间(30秒) + 30秒缓冲
+    // 计算方式: 
+    // - 每页约100个帖子，每个帖子需要 10-15 秒（获取、解析、保存、延迟）
+    // - 所以每页需要 1500-1800 秒 (25-30分钟)
+    // - 为了安全，设置为每页 25 分钟 (1500秒)
     const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
-    const isNeedLongerTimeout = crawlType === 'batch' && maxPages > 3;
-    const defaultTimeout = isNeedLongerTimeout ? 
-      Math.max(1800000, maxPages * 30000 + 30000) :  // 批量采集: 至少30分钟
-      600000;  // 单贴采集: 10分钟
+    
+    let defaultTimeout;
+    if (crawlType === 'batch') {
+      // 批量采集: 每页 1500 秒 (25分钟) + 30秒缓冲
+      const timePerPage = 1500;  // 秒
+      const bufferTime = 30;     // 秒
+      const calculatedTimeout = (maxPages * timePerPage + bufferTime) * 1000;  // 转换为毫秒
+      defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
+      console.log(`[爬虫] 批量采集配置: maxPages=${maxPages}, 预计超时时间=${defaultTimeout}ms (${(defaultTimeout/1000/60).toFixed(1)}分钟)`);
+    } else {
+      // 单贴采集: 10分钟
+      defaultTimeout = 600000;
+      console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (10分钟)`);
+    }
+    
     const timeout = taskConfig?.timeout || defaultTimeout;
+    const startPage = taskConfig?.startPage || 1;
     const args = [
       crawlerScript,
       '--url', forumUrl,
@@ -38,6 +53,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       '--delay', taskConfig?.delay || 1000,
       '--timeout', timeout,
       '--max-pages', maxPages, // 添加最大页数参数
+      '--start-page', startPage, // 添加起始页参数
     ];
 
       // 构建完整的命令字符串用于日志记录

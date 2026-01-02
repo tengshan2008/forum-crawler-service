@@ -423,6 +423,23 @@ class ForumCrawler:
             print(f"⚠ 构建版块分页URL失败: {e}", file=sys.stderr, flush=True)
             return section_url
     
+    def extract_page_from_url(self, url):
+        """从URL中提取page参数值
+        
+        Returns:
+            int: 页码，如果没有page参数则返回None
+        """
+        try:
+            # 查找 page=数字 模式
+            match = re.search(r'page=(\d+)', url)
+            if match:
+                page_num = int(match.group(1))
+                return page_num
+            return None
+        except Exception as e:
+            print(f"⚠ 提取URL中的page参数失败: {e}", file=sys.stderr, flush=True)
+            return None
+    
     def parse_t66y_post(self, url, html, task_type='image'):
         """解析 t66y 论坛帖子 - 提取所有页面和楼层的内容"""
         try:
@@ -964,13 +981,14 @@ class ForumCrawler:
                 'message': None
             }
     
-    def crawl_forum(self, forum_url, task_type='image', max_depth=1, max_pages=10, crawl_type='single'):
+    def crawl_forum(self, forum_url, task_type='image', max_depth=1, max_pages=10, crawl_type='single', start_page=1):
         """爬取论坛内容 - 支持单帖和批量采集"""
         try:
             print(f"开始爬虫任务 {self.task_id}", flush=True)
             print(f"URL: {forum_url}", flush=True)
             print(f"Type: {task_type}", flush=True)
             print(f"Max Pages: {max_pages}", flush=True)
+            print(f"Start Page: {start_page}", flush=True)
             
             # 根据参数直接使用is_batch，而不是通过URL判断
             is_batch = (crawl_type == 'batch')
@@ -984,25 +1002,41 @@ class ForumCrawler:
             if is_batch:
                 print("🔄 批量采集模式: 开始逐页爬取版块帖子", flush=True)
                 
-                # 获取版块第一页（批量采集使用60秒超时以处理网络延迟）
-                html = self.fetch_page(forum_url, request_timeout=60)
+                # 智能提取起始页码：优先使用显式参数，否则从URL中提取
+                # 如果 start_page 是默认值1且URL中有page参数，则使用URL中的页码
+                current_page = start_page
+                if start_page == 1:
+                    # 检查URL中是否有page参数
+                    url_page = self.extract_page_from_url(forum_url)
+                    if url_page is not None:
+                        current_page = url_page
+                        print(f"📍 从URL中提取页码: {url_page}，作为起始页", flush=True)
+                
+                # 获取版块指定起始页面（批量采集使用60秒超时以处理网络延迟）
+                # 始终使用 build_section_pagination_url 来正确处理 page 参数
+                # 即使是第一页也要调用，确保URL中的 page 参数被正确替换或添加
+                start_url = self.build_section_pagination_url(forum_url, current_page)
+                
+                print(f"📄 从第 {current_page} 页开始爬取: {start_url}", flush=True)
+                
+                html = self.fetch_page(start_url, request_timeout=60)
                 if not html:
-                    print(f"✗ 无法获取版块内容", file=sys.stderr, flush=True)
+                    print(f"✗ 无法获取版块第 {current_page} 页内容", file=sys.stderr, flush=True)
                     return {
                         'success': False,
                         'task_id': self.task_id,
-                        'error': '无法获取版块内容',
+                        'error': f'无法获取版块第 {current_page} 页内容',
                     }
                 
-                # 提取第一页的帖子链接
+                # 提取起始页的帖子链接
                 all_post_links = self.extract_post_links_from_section(html)
-                current_page = 1
                 
                 # 逐页采集，而不是一次性决定总页数
-                print(f"📋 采用逐页采集模式，最多采集 {max_pages} 页", flush=True)
+                print(f"📋 采用逐页采集模式，从第 {start_page} 页开始，最多采集 {max_pages} 页", flush=True)
                 
                 # 循环采集多页，直到没有下一页或达到最大页数
-                while current_page < max_pages:
+                pages_crawled = 1  # 已经爬取的页数（包括起始页）
+                while pages_crawled < max_pages:
                     # 检查当前页是否有下一页
                     has_next = self.has_next_page(html, current_page)
                     
@@ -1030,6 +1064,7 @@ class ForumCrawler:
                     all_post_links.extend(page_links)
                     html = section_page_html  # 更新为当前页内容，用于下次检查
                     current_page = next_page_num
+                    pages_crawled += 1
                     
                     # 随机延迟避免被封（延长到3-5秒）
                     import time
@@ -1237,6 +1272,7 @@ def main():
     parser.add_argument('--delay', type=int, default=1000, help='请求延迟')
     parser.add_argument('--timeout', type=int, default=600000, help='超时时间 (ms)')
     parser.add_argument('--max-pages', type=int, default=10, help='最大爬取页数 (针对批量采集)')
+    parser.add_argument('--start-page', type=int, default=1, help='起始页码 (针对批量采集，默认为1)')
     
     args = parser.parse_args()
     
@@ -1249,7 +1285,7 @@ def main():
     crawler = None
     try:
         crawler = ForumCrawler(args.task_id, mongodb_uri)
-        result = crawler.crawl_forum(args.url, args.type, args.max_depth, args.max_pages, args.crawl_type)
+        result = crawler.crawl_forum(args.url, args.type, args.max_depth, args.max_pages, args.crawl_type, args.start_page)
         
         if result['success']:
             print(f"CRAWLED:{result.get('crawled_posts', 0)}", flush=True)

@@ -90,6 +90,10 @@ const taskSchema = new mongoose.Schema(
         type: Number,
         default: 10,
       },
+      startPage: {
+        type: Number,
+        default: 1,
+      },
       userAgent: String,
       headers: mongoose.Schema.Types.Mixed,
     },
