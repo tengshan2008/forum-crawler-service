@@ -573,13 +573,20 @@ class ForumCrawler:
             
             content_divs = []
             
-            # 1. 首先尝试 tpc_content 选择器（t66y 专用）
-            divs = soup.find_all('div', class_='tpc_content')
-            if divs:
-                divs = [d for d in divs if len(d.get_text(strip=True)) > 100]
+            # 对于 t66y 论坛，优先使用 id="conttpc" - 这是最可靠的
+            div = soup.find('div', id='conttpc')
+            if div and len(div.get_text(strip=True)) > 50:  # 图片帖子内容可能较少，降低阈值
+                content_divs = [div]
+                print(f"✓ 使用选择器: div#conttpc (t66y 专用)", flush=True)
+            
+            # 1. 如果没找到，尝试 tpc_content 选择器（t66y 专用）
+            if not content_divs:
+                divs = soup.find_all('div', class_='tpc_content')
                 if divs:
-                    content_divs = divs
-                    print(f"✓ 使用选择器: div.tpc_content (找到 {len(divs)} 个容器)", flush=True)
+                    divs = [d for d in divs if len(d.get_text(strip=True)) > 100]
+                    if divs:
+                        content_divs = divs
+                        print(f"✓ 使用选择器: div.tpc_content (找到 {len(divs)} 个容器)", flush=True)
             
             # 2. 尝试通过 id 属性查找
             if not content_divs:
@@ -685,6 +692,12 @@ class ForumCrawler:
                     # 提取图片
                     img_elements = content_div.find_all('img')
                     for img_idx, img in enumerate(img_elements, 1):
+                        # 检查图片是否在用户卡片中（用户卡片特征：<th width="230">）
+                        # 这样可以过滤掉头像而不破坏HTML结构
+                        if img.find_parent('th', attrs={'width': '230'}):
+                            print(f"    ⊘ 图片 {img_idx} 被过滤 (在用户卡片中): {img.get('src', '')[:80]}...", flush=True)
+                            continue
+                        
                         # 尝试多个属性获取图片 URL
                         img_url = (
                             img.get('ess-data') or 
@@ -695,9 +708,43 @@ class ForumCrawler:
                         )
                         
                         if img_url and img_url.startswith('http'):
-                            # 过滤掉明确的表情、头像等小图标
-                            if any(x in img_url.lower() for x in ['emotion', 'icon', 'avatar', 'face', 'emoticon']):
+                            # 过滤掉明确的表情、头像、图标等无关图片
+                            # 只过滤明确的小图片URL特征，避免误杀
+                            unwanted_patterns = [
+                                r'emotion[/._-]',      # 表情文件夹
+                                r'emoticon[/._-]',     # 表情符号
+                                r'icon[/._-]',         # 图标
+                                r'avatar[/._-]',       # 头像
+                                r'face[/._-]',         # 脸部
+                                r'emoji[/._-]',        # emoji
+                                r'/avatar/',           # 头像文件夹
+                                r'/static/.*avatar',   # 静态头像
+                                r'avatar\.',           # avatar.png 等
+                            ]
+                            
+                            should_skip = False
+                            for pattern in unwanted_patterns:
+                                if re.search(pattern, img_url, re.IGNORECASE):
+                                    print(f"    ⊘ 图片 {img_idx} 被过滤 (URL 匹配无关特征): {img_url[:80]}...", flush=True)
+                                    should_skip = True
+                                    break
+                            
+                            if should_skip:
                                 continue
+                            
+                            # 检查图片尺寸属性，如果明确标注为很小的图片则过滤
+                            width = img.get('width', '')
+                            height = img.get('height', '')
+                            try:
+                                # 尝试提取数值
+                                width_val = int(width) if width and width.isdigit() else 0
+                                height_val = int(height) if height and height.isdigit() else 0
+                                # 如果图片宽高都很小（小于 100px），认为是小图标
+                                if width_val > 0 and height_val > 0 and width_val < 100 and height_val < 100:
+                                    print(f"    ⊘ 图片 {img_idx} 被过滤 (尺寸过小 {width_val}x{height_val}): {img_url[:80]}...", flush=True)
+                                    continue
+                            except:
+                                pass
                             
                             # 避免重复添加同一张图片
                             if img_url not in [img['url'] for img in images]:
@@ -705,6 +752,7 @@ class ForumCrawler:
                                     'url': img_url,
                                     'description': f'第{page_num}页 楼层{floor_idx} 图片{img_idx}'
                                 })
+                                print(f"    ✓ 图片 {img_idx}: {img_url[:80]}...", flush=True)
             else:
                 print(f"⚠ 页面 {page_num}: 未能找到任何内容容器，检查 HTML 结构", flush=True)
             

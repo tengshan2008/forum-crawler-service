@@ -30,7 +30,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
     let defaultTimeout;
     if (crawlType === 'batch') {
       // 批量采集: 每页 1500 秒 (25分钟) + 30秒缓冲
-      const timePerPage = 1500;  // 秒
+      const timePerPage = 3000;  // 秒
       const bufferTime = 30;     // 秒
       const calculatedTimeout = (maxPages * timePerPage + bufferTime) * 1000;  // 转换为毫秒
       defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
