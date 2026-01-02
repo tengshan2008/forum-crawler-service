@@ -516,7 +516,7 @@ class ForumCrawler:
             if total_pages > 1:
                 print(f"🔄 多分页模式：开始遍历第 2-{total_pages} 页...", flush=True)
                 # 限制最大遍历页数，避免过多请求
-                max_crawl_pages = min(total_pages, 20)
+                max_crawl_pages = min(total_pages, 1000)
                 for page_num in range(2, max_crawl_pages + 1):
                     # 构建分页URL
                     page_url = self.build_pagination_url(url, page_num)
