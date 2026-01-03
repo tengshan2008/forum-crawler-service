@@ -22,15 +22,15 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       // 构建参数
     // 批量采集需要更长的超时时间
     // 计算方式: 
-    // - 每页约100个帖子，每个帖子需要 10-15 秒（获取、解析、保存、延迟）
-    // - 所以每页需要 1500-1800 秒 (25-30分钟)
-    // - 为了安全，设置为每页 25 分钟 (1500秒)
+    // - 每页约100个帖子，每个帖子需要 600-900 秒（获取、解析、保存、延迟）
+    // - 所以每页需要 6000-9000 秒 (25-30分钟)
+    // - 为了安全，设置为每页 100 分钟 (6000秒)
     const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
     
     let defaultTimeout;
     if (crawlType === 'batch') {
-      // 批量采集: 每页 1500 秒 (25分钟) + 30秒缓冲
-      const timePerPage = 3000;  // 秒
+      // 批量采集: 每页 6000 秒 (100分钟) + 30秒缓冲
+      const timePerPage = 6000;  // 秒
       const bufferTime = 30;     // 秒
       const calculatedTimeout = (maxPages * timePerPage + bufferTime) * 1000;  // 转换为毫秒
       defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
