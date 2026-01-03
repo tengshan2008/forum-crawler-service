@@ -254,7 +254,7 @@ class ForumCrawler:
         print(f"✗ 所有重试失败: {url}", file=sys.stderr, flush=True)
         return None
     
-    def extract_page_numbers(self, html, max_allowed_pages=100):
+    def extract_page_numbers(self, html, max_allowed_pages=1000):
         """从HTML中提取总页数 - 带最大页数限制"""
         try:
             soup = BeautifulSoup(html, 'html.parser')
