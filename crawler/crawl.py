@@ -549,7 +549,7 @@ class ForumCrawler:
                     formatted_parts.append(part)
                 content = ''.join(formatted_parts)
             else:
-                content = '暂无内容'
+                content = title + ' 暂无内容'
             
             # 输出标题，供后端解析并更新任务名称
             print(f"TITLE:{title}", flush=True)
