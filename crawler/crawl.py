@@ -336,6 +336,67 @@ class ForumCrawler:
             print(f"⚠ 构建分页URL失败: {e}", file=sys.stderr, flush=True)
             return None
     
+    def _is_garbage_content(self, html):
+        """检测内容是否为不可解析的乱码
+        
+        当网站返回某种加密或防御机制导致的乱码内容时，需要识别出来进行重试。
+        典型的乱码特征：包含大量不可打印字符、中文字符极少。
+        
+        Args:
+            html: 页面HTML内容
+            
+        Returns:
+            bool: True 表示是乱码内容，需要重试
+        """
+        if not html:
+            return True
+        
+        try:
+            # 检查内容长度，过短可能是乱码
+            if len(html) < 100:
+                print(f"⚠ 检测到内容过短 ({len(html)} 字符)，可能是乱码", flush=True)
+                return True
+            
+            # 取样分析（分析前5000个字符）
+            sample = html[:5000]
+            
+            # 统计可打印ASCII字符（排除控制字符）
+            printable_chars = sum(1 for c in sample if c.isprintable() or c in '\n\r\t')
+            printable_ratio = printable_chars / len(sample) if sample else 0
+            
+            # 统计中文字符数量
+            chinese_chars = sum(1 for c in sample if '\u4e00' <= c <= '\u9fff')
+            
+            # 统计常见HTML标签
+            html_tags_count = sample.count('<') + sample.count('>')
+            
+            # 判断逻辑：
+            # 1. 正常的HTML页面应该有较高的可打印字符比例（> 70%）
+            # 2. 中文论坛页面应该有一定数量的中文字符
+            # 3. 正常HTML应该有HTML标签
+            is_garbage = False
+            
+            if printable_ratio < 0.5:
+                print(f"⚠ 可打印字符比例过低 ({printable_ratio:.1%})，判定为乱码", flush=True)
+                is_garbage = True
+            elif html_tags_count < 5 and chinese_chars < 5:
+                print(f"⚠ 缺少HTML标签 ({html_tags_count}) 且中文字符极少 ({chinese_chars})，判定为乱码", flush=True)
+                is_garbage = True
+            elif printable_ratio < 0.7 and chinese_chars < 10:
+                print(f"⚠ 可打印字符比例较低 ({printable_ratio:.1%}) 且中文字符较少 ({chinese_chars})，判定为乱码", flush=True)
+                is_garbage = True
+            
+            if is_garbage:
+                # 打印部分内容用于调试（只显示可打印字符）
+                safe_preview = ''.join(c if c.isprintable() else '?' for c in sample[:200])
+                print(f"  内容预览: {safe_preview}...", flush=True)
+            
+            return is_garbage
+            
+        except Exception as e:
+            print(f"⚠ 检测内容时出错: {e}", file=sys.stderr, flush=True)
+            return False  # 出错时不判定为乱码，继续正常处理
+    
     def extract_post_links_from_section(self, html):
         """从版块页面中提取所有帖子链接（优先提取h3中的帖子入口链接）"""
         try:
@@ -405,6 +466,52 @@ class ForumCrawler:
             import traceback
             traceback.print_exc()
             return []
+    
+    def fetch_section_page_with_retry(self, url, max_garbage_retries=5, request_timeout=60):
+        """获取版块页面内容，带乱码检测和重试机制
+        
+        当网站返回不可解析的乱码内容时，自动重试获取页面。
+        
+        Args:
+            url: 版块页面URL
+            max_garbage_retries: 检测到乱码时的最大重试次数，默认5次
+            request_timeout: HTTP请求超时时间(秒)
+            
+        Returns:
+            str: 页面HTML内容，如果所有重试都失败则返回 None
+        """
+        import time
+        import random
+        
+        for retry_count in range(max_garbage_retries + 1):  # +1 包括初始请求
+            if retry_count > 0:
+                # 重试时使用更长的等待时间
+                retry_delay = random.uniform(3, 8)
+                print(f"🔄 乱码重试 {retry_count}/{max_garbage_retries}，等待 {retry_delay:.1f} 秒后重新请求...", flush=True)
+                time.sleep(retry_delay)
+            
+            # 获取页面
+            html = self.fetch_page(url, request_timeout=request_timeout)
+            
+            if not html:
+                print(f"⚠ 获取页面失败: {url}", flush=True)
+                continue
+            
+            # 检测是否为乱码内容
+            if self._is_garbage_content(html):
+                if retry_count < max_garbage_retries:
+                    print(f"⚠ 检测到乱码内容，将进行重试...", flush=True)
+                    continue
+                else:
+                    print(f"✗ 已达到最大重试次数 ({max_garbage_retries})，仍然是乱码内容", file=sys.stderr, flush=True)
+                    return None
+            
+            # 内容正常，返回
+            if retry_count > 0:
+                print(f"✓ 第 {retry_count} 次重试成功获取有效内容", flush=True)
+            return html
+        
+        return None
     
     def build_section_pagination_url(self, section_url, page_num):
         """为版块构建分页URL"""
@@ -1068,13 +1175,13 @@ class ForumCrawler:
                 
                 print(f"📄 从第 {current_page} 页开始爬取: {start_url}", flush=True)
                 
-                html = self.fetch_page(start_url, request_timeout=60)
+                html = self.fetch_section_page_with_retry(start_url, request_timeout=60)
                 if not html:
-                    print(f"✗ 无法获取版块第 {current_page} 页内容", file=sys.stderr, flush=True)
+                    print(f"✗ 无法获取版块第 {current_page} 页内容（重试后失败）", file=sys.stderr, flush=True)
                     return {
                         'success': False,
                         'task_id': self.task_id,
-                        'error': f'无法获取版块第 {current_page} 页内容',
+                        'error': f'无法获取版块第 {current_page} 页内容（重试后失败）',
                     }
                 
                 # 提取起始页的帖子链接
@@ -1098,9 +1205,9 @@ class ForumCrawler:
                     section_page_url = self.build_section_pagination_url(forum_url, next_page_num)
                     print(f"📄 开始爬取版块第 {next_page_num} 页: {section_page_url}", flush=True)
                     
-                    section_page_html = self.fetch_page(section_page_url, request_timeout=60)
+                    section_page_html = self.fetch_section_page_with_retry(section_page_url, request_timeout=60)
                     if not section_page_html:
-                        print(f"⚠ 无法获取版块第 {next_page_num} 页，停止采集", flush=True)
+                        print(f"⚠ 无法获取版块第 {next_page_num} 页（重试后失败），停止采集", flush=True)
                         break
                     
                     # 提取该页的帖子链接
