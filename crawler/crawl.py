@@ -695,20 +695,20 @@ class ForumCrawler:
             
             content_divs = []
             
-            # 对于 t66y 论坛，优先使用 id="conttpc" - 这是最可靠的
-            div = soup.find('div', id='conttpc')
-            if div and len(div.get_text(strip=True)) > 1:  # 图片帖子内容可能较少，降低阈值
-                content_divs = [div]
-                print(f"✓ 使用选择器: div#conttpc (t66y 专用)", flush=True)
-            
-            # 1. 如果没找到，尝试 tpc_content 选择器（t66y 专用）
-            if not content_divs:
-                divs = soup.find_all('div', class_='tpc_content')
+            # 对于 t66y 论坛，优先使用 tpc_content 选择器（t66y 专用）- 这是最可靠的
+            divs = soup.find_all('div', class_='tpc_content')
+            if divs:
+                divs = [d for d in divs if len(d.get_text(strip=True)) > 0]
                 if divs:
-                    divs = [d for d in divs if len(d.get_text(strip=True)) > 100]
-                    if divs:
-                        content_divs = divs
-                        print(f"✓ 使用选择器: div.tpc_content (找到 {len(divs)} 个容器)", flush=True)
+                    content_divs = divs
+                    print(f"✓ 使用选择器: div.tpc_content (找到 {len(divs)} 个容器)", flush=True)
+            
+            # 1. 如果没找到，尝试  id="conttpc" 
+            if not content_divs:
+                div = soup.find('div', id='conttpc')
+                if div and len(div.get_text(strip=True)) > 1:  # 图片帖子内容可能较少，降低阈值
+                    content_divs = [div]
+                    print(f"✓ 使用选择器: div#conttpc (t66y 专用)", flush=True)
             
             # 2. 尝试通过 id 属性查找
             if not content_divs:
