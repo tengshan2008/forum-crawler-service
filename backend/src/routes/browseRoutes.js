@@ -85,4 +85,19 @@ router.post('/collections/:id/items', browseController.addToCollection);
  */
 router.delete('/collections/:id/items', browseController.removeFromCollection);
 
+// ============ 缓存管理和统计路由 ============
+
+/**
+ * POST /api/browse/cache/clear
+ * 清除计数缓存（当数据量变化较大时使用）
+ */
+router.post('/cache/clear', browseController.clearCache);
+
+/**
+ * GET /api/browse/stats
+ * 获取数据库统计信息
+ */
+router.get('/stats', browseController.getStats);
+
 module.exports = router;
+
