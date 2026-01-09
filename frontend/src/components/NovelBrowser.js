@@ -48,6 +48,7 @@ const NovelBrowser = () => {
   const [favorites, setFavorites] = useState(new Set());
   const [readerDrawerVisible, setReaderDrawerVisible] = useState(false);
   const [selectedNovel, setSelectedNovel] = useState(null);
+  const [readerLoading, setReaderLoading] = useState(false);
 
   // 获取任务列表
   useEffect(() => {
@@ -162,20 +163,49 @@ const NovelBrowser = () => {
     }
   };
 
-  const handleRead = (novel) => {
-    setSelectedNovel(novel);
+  const handleRead = async (novel) => {
+    setReaderLoading(true);
     setReaderDrawerVisible(true);
+    try {
+      // 先获取完整的小说内容
+      const res = await browseApi.getNovelContent(novel._id);
+      if (res.data && res.data.data) {
+        setSelectedNovel(res.data.data);
+      } else {
+        message.error('获取小说内容失败');
+        setReaderDrawerVisible(false);
+      }
+    } catch (error) {
+      console.error('获取小说内容失败:', error);
+      message.error('获取小说内容失败');
+      setReaderDrawerVisible(false);
+    } finally {
+      setReaderLoading(false);
+    }
   };
 
-  const handleExport = (novel) => {
-    // 简单实现：导出为 TXT
-    const element = document.createElement('a');
-    const file = new Blob([novel.content], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = `${novel.title}.txt`;
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
+  const handleExport = async (novel) => {
+    try {
+      message.loading({ content: '正在获取小说内容...', key: 'export' });
+      // 先获取完整的小说内容
+      const res = await browseApi.getNovelContent(novel._id);
+      if (res.data && res.data.data && res.data.data.content) {
+        const fullNovel = res.data.data;
+        const element = document.createElement('a');
+        const file = new Blob([fullNovel.content], { type: 'text/plain' });
+        element.href = URL.createObjectURL(file);
+        element.download = `${fullNovel.title}.txt`;
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+        message.success({ content: '导出成功', key: 'export' });
+      } else {
+        message.error({ content: '获取小说内容失败', key: 'export' });
+      }
+    } catch (error) {
+      console.error('导出失败:', error);
+      message.error({ content: '导出失败', key: 'export' });
+    }
   };
 
   if (loading && novels.length === 0) {
@@ -409,15 +439,24 @@ const NovelBrowser = () => {
                 作者：{selectedNovel.author || '未知'}
               </div>
             </div>
-          ) : null
+          ) : '加载中...'
         }
         placement='right'
-        onClose={() => setReaderDrawerVisible(false)}
+        onClose={() => {
+          setReaderDrawerVisible(false);
+          setSelectedNovel(null);
+        }}
         open={readerDrawerVisible}
         width='80%'
         bodyStyle={{ padding: 0 }}
       >
-        {selectedNovel && <NovelReader novel={selectedNovel} />}
+        {readerLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+            <Spin size='large' tip='正在加载小说内容...' />
+          </div>
+        ) : selectedNovel ? (
+          <NovelReader novel={selectedNovel} />
+        ) : null}
       </Drawer>
     </div>
   );

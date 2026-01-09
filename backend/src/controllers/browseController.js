@@ -182,9 +182,9 @@ exports.searchImages = catchAsync(async (req, res) => {
  * 获取小说列表 - 已优化
  * 优化点：
  * 1. 使用 hint 强制使用复合索引
- * 2. 不查询 content 字段，只查询必要字段
- * 3. 使用缓存减少 countDocuments 调用
- * 4. 添加查询超时保护
+ * 2. 使用缓存减少 countDocuments 调用
+ * 3. 添加查询超时保护
+ * 4. 在应用层计算字数和截取摘要
  */
 exports.getNovels = catchAsync(async (req, res) => {
   const { page = 1, limit = 20, taskId, sortBy = '-createdAt', lastId } = req.query;
@@ -206,7 +206,7 @@ exports.getNovels = catchAsync(async (req, res) => {
   if (lastId && sortBy === '-createdAt') {
     filter._id = { $lt: lastId };
     query = Post.find(filter)
-      .select('title author sourceUrl taskId createdAt views likes replies')
+      .select('title author content sourceUrl taskId createdAt views likes replies')
       .sort({ _id: -1 })
       .limit(pageSize)
       .maxTimeMS(QUERY_TIMEOUT_MS)
@@ -214,7 +214,7 @@ exports.getNovels = catchAsync(async (req, res) => {
   } else {
     const skip = (pageNum - 1) * pageSize;
     query = Post.find(filter)
-      .select('title author sourceUrl taskId createdAt views likes replies')
+      .select('title author content sourceUrl taskId createdAt views likes replies')
       .sort(sortBy)
       .skip(skip)
       .limit(pageSize)
@@ -231,6 +231,21 @@ exports.getNovels = catchAsync(async (req, res) => {
 
   const novels = await query;
 
+  // 为每个小说添加字数统计和摘要，然后删除 content 字段减少传输量
+  const enrichedNovels = novels.map((novel) => ({
+    _id: novel._id,
+    title: novel.title,
+    author: novel.author,
+    sourceUrl: novel.sourceUrl,
+    taskId: novel.taskId,
+    createdAt: novel.createdAt,
+    views: novel.views,
+    likes: novel.likes,
+    replies: novel.replies,
+    wordCount: novel.content ? novel.content.length : 0,
+    excerpt: novel.content ? novel.content.substring(0, 200) : '',
+  }));
+
   // 获取总数（使用缓存）
   const cacheKey = `novels_count_${taskId || 'all'}`;
   let total = countCache.get(cacheKey);
@@ -241,7 +256,7 @@ exports.getNovels = catchAsync(async (req, res) => {
 
   res.status(200).json({
     success: true,
-    data: novels,
+    data: enrichedNovels,
     pagination: {
       page: pageNum,
       limit: pageSize,
@@ -257,9 +272,9 @@ exports.getNovels = catchAsync(async (req, res) => {
  * 搜索和筛选小说 - 已优化
  * 优化点：
  * 1. 使用 MongoDB 文本索引替代正则表达式（性能提升 10-100 倍）
- * 2. 不查询 content 字段减少数据传输
- * 3. 添加查询超时保护
- * 4. 支持回退到正则表达式搜索（当文本索引不适用时）
+ * 2. 添加查询超时保护
+ * 3. 支持回退到正则表达式搜索（当文本索引不适用时）
+ * 4. 在应用层计算字数和截取摘要
  */
 exports.searchNovels = catchAsync(async (req, res) => {
   const {
@@ -309,7 +324,7 @@ exports.searchNovels = catchAsync(async (req, res) => {
 
       // 文本搜索时，按相关性分数排序
       novels = await Post.find(filter, { score: { $meta: 'textScore' } })
-        .select('title author sourceUrl taskId createdAt views likes replies')
+        .select('title author content sourceUrl taskId createdAt views likes replies')
         .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
@@ -327,7 +342,7 @@ exports.searchNovels = catchAsync(async (req, res) => {
       ];
 
       novels = await Post.find(filter)
-        .select('title author sourceUrl taskId createdAt views likes replies')
+        .select('title author content sourceUrl taskId createdAt views likes replies')
         .sort(sortBy)
         .skip(skip)
         .limit(pageSize)
@@ -339,7 +354,7 @@ exports.searchNovels = catchAsync(async (req, res) => {
   } else {
     // 无关键词时直接查询
     novels = await Post.find(filter)
-      .select('title author sourceUrl taskId createdAt views likes replies')
+      .select('title author content sourceUrl taskId createdAt views likes replies')
       .sort(sortBy)
       .skip(skip)
       .limit(pageSize)
@@ -356,9 +371,24 @@ exports.searchNovels = catchAsync(async (req, res) => {
     }
   }
 
+  // 为每个小说添加字数统计和摘要，然后删除 content 字段减少传输量
+  const enrichedNovels = novels.map((novel) => ({
+    _id: novel._id,
+    title: novel.title,
+    author: novel.author,
+    sourceUrl: novel.sourceUrl,
+    taskId: novel.taskId,
+    createdAt: novel.createdAt,
+    views: novel.views,
+    likes: novel.likes,
+    replies: novel.replies,
+    wordCount: novel.content ? novel.content.length : 0,
+    excerpt: novel.content ? novel.content.substring(0, 200) : '',
+  }));
+
   res.status(200).json({
     success: true,
-    data: novels,
+    data: enrichedNovels,
     pagination: {
       page: pageNum,
       limit: pageSize,
