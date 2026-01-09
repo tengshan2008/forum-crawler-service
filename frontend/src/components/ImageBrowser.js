@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Row,
   Col,
@@ -59,7 +59,7 @@ const ImageBrowser = () => {
   }, []);
 
   // 获取图片列表
-  const fetchImages = async (page = 1, pageSize = null) => {
+  const fetchImages = useCallback(async (page = 1, pageSize = null) => {
     const size = pageSize || pagination.pageSize;
     setLoading(true);
     try {
@@ -75,7 +75,7 @@ const ImageBrowser = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.pageSize, filters.taskId]);
 
   // 搜索图片
   const handleSearch = async () => {
@@ -105,7 +105,7 @@ const ImageBrowser = () => {
 
   useEffect(() => {
     fetchImages(1);
-  }, []);
+  }, [fetchImages]);
 
   const handlePaginationChange = (page) => {
     fetchImages(page, pagination.pageSize);

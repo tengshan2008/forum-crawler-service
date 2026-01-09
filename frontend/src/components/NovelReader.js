@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
-  Layout,
   Button,
   Space,
   Slider,
@@ -15,7 +14,6 @@ import {
 import {
   DownloadOutlined,
   CopyOutlined,
-  FormatPainterOutlined,
   ArrowLeftOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons';
@@ -63,7 +61,7 @@ const NovelReader = ({ novel }) => {
     const totalPages = Math.ceil(content.length / wordsPerPage);
     const startIndex = (currentPage - 1) * wordsPerPage;
     const endIndex = Math.min(startIndex + wordsPerPage, content.length);
-    
+
     return {
       totalPages,
       startIndex,

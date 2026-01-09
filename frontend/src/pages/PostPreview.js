@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Statistic, Pagination, Select } from 'antd';
+import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Pagination, Select } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, CopyOutlined } from '@ant-design/icons';
 import { postApi } from '../services/api';
 import dayjs from 'dayjs';
@@ -14,14 +14,7 @@ const PostPreview = () => {
   const [pagination, setPagination] = useState({ current: 1, pageSize: 12, total: 0 });
   const [contentPagination, setContentPagination] = useState({}); // 用于存储每篇文章的内容分页状态
 
-  useEffect(() => {
-    if (taskId) {
-      fetchTaskInfo();
-      fetchPosts();
-    }
-  }, [taskId, pagination.current, pagination.pageSize]);
-
-  const fetchTaskInfo = async () => {
+  const fetchTaskInfo = useCallback(async () => {
     try {
       const response = await fetch(`/api/tasks/${taskId}`);
       const result = await response.json();
@@ -31,7 +24,7 @@ const PostPreview = () => {
     } catch (error) {
       console.error('Error fetching task info:', error);
     }
-  };
+  }, [taskId]);
 
   // 获取跳过原因的颜色
   const getReasonColor = (reason) => {
@@ -141,9 +134,9 @@ const PostPreview = () => {
       // 检查是否在浏览器中直接访问（非 Docker 环境）
       // 在本地开发时，前端在 3000 端口，后端在 5000 端口
       // 需要明确指向后端服务器
-      const isLocalDevelopment = window.location.hostname === 'localhost' || 
-                                window.location.hostname === '127.0.0.1' ||
-                                window.location.hostname === 'raspberrypi';
+      const isLocalDevelopment = window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1' ||
+        window.location.hostname === 'raspberrypi';
 
       if (isLocalDevelopment) {
         const backendHost = window.location.hostname === 'raspberrypi' ? 'raspberrypi' : 'localhost';
@@ -157,7 +150,7 @@ const PostPreview = () => {
       if (media.url.startsWith('http://') || media.url.startsWith('https://')) {
         return media.url;
       }
-      
+
       // 否则使用相对路径，通过 Nginx 代理访问
       return `/api${media.url}`;
     }
@@ -166,7 +159,7 @@ const PostPreview = () => {
     return media.url;
   };
 
-  const fetchPosts = async () => {
+  const fetchPosts = useCallback(async () => {
     try {
       setLoading(true);
       const response = await postApi.getByTaskId(taskId, {
@@ -176,10 +169,10 @@ const PostPreview = () => {
 
       if (response.data && response.data.data) {
         setPosts(response.data.data);
-        setPagination({
-          ...pagination,
+        setPagination(prev => ({
+          ...prev,
           total: response.data.pagination?.total || 0,
-        });
+        }));
       }
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -188,7 +181,15 @@ const PostPreview = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [taskId, pagination.current, pagination.pageSize]);
+
+  // 当 taskId 或分页参数变化时重新获取数据
+  useEffect(() => {
+    if (taskId) {
+      fetchTaskInfo();
+      fetchPosts();
+    }
+  }, [taskId, fetchTaskInfo, fetchPosts]);
 
   if (!loading && (!posts || posts.length === 0)) {
     return (
@@ -370,25 +371,25 @@ const PostPreview = () => {
                         const currentContent = getCurrentPageContent(post._id, post.content);
                         return (
                           <div>
-                            <div 
-                              style={{ 
-                                maxHeight: '500px', 
-                                overflowY: 'auto', 
-                                padding: '12px', 
-                                backgroundColor: '#fafafa', 
-                                borderRadius: '4px', 
-                                whiteSpace: 'pre-wrap', 
+                            <div
+                              style={{
+                                maxHeight: '500px',
+                                overflowY: 'auto',
+                                padding: '12px',
+                                backgroundColor: '#fafafa',
+                                borderRadius: '4px',
+                                whiteSpace: 'pre-wrap',
                                 wordBreak: 'break-word',
                                 wordWrap: 'break-word',
                                 overflowWrap: 'break-word',
-                                lineHeight: 1.6, 
+                                lineHeight: 1.6,
                                 marginBottom: 16,
                                 fontFamily: 'Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
                               }}
                             >
-                              <pre style={{ 
-                                margin: 0, 
-                                padding: 0, 
+                              <pre style={{
+                                margin: 0,
+                                padding: 0,
                                 whiteSpace: 'pre-wrap',
                                 wordBreak: 'break-word',
                                 wordWrap: 'break-word',

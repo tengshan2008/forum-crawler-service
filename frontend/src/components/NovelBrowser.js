@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Row,
   Col,
@@ -13,16 +13,13 @@ import {
   message,
   Empty,
   Tooltip,
-  Modal,
   Drawer,
-  Statistic,
 } from 'antd';
 import {
   DownloadOutlined,
   ShareAltOutlined,
   HeartOutlined,
   HeartFilled,
-  EyeOutlined,
   BookOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
@@ -66,7 +63,7 @@ const NovelBrowser = () => {
   }, []);
 
   // 获取小说列表
-  const fetchNovels = async (page = 1, pageSize = null) => {
+  const fetchNovels = useCallback(async (page = 1, pageSize = null) => {
     const size = pageSize || pagination.pageSize;
     setLoading(true);
     try {
@@ -82,7 +79,7 @@ const NovelBrowser = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.pageSize, filters.taskId]);
 
   // 搜索小说
   const handleSearch = async () => {
@@ -114,7 +111,7 @@ const NovelBrowser = () => {
 
   useEffect(() => {
     fetchNovels(1);
-  }, []);
+  }, [fetchNovels]);
 
   const handlePaginationChange = (page) => {
     fetchNovels(page, pagination.pageSize);
