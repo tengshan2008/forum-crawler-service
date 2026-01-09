@@ -140,7 +140,7 @@ def download_image(url, task_id, max_retries=3):
             response = session.get(
                 url,
                 headers=headers,
-                timeout=20,
+                timeout=60,
                 verify=False,  # 忽略 SSL 证书验证
                 allow_redirects=True,
                 stream=False
