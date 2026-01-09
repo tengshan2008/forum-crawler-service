@@ -401,18 +401,20 @@ exports.searchNovels = catchAsync(async (req, res) => {
 /**
  * 获取单个小说的详细内容
  */
-exports.getNovelContent = catchAsync(async (req, res) => {
+exports.getNovelContent = catchAsync(async (req, res, next) => {
   const { id } = req.params;
 
-  const novel = await Post.findById(id);
+  // 使用 findByIdAndUpdate 原子更新浏览量，避免 save() 触发 validation 错误
+  // 因为部分老数据可能缺少 userId 等必填字段
+  const novel = await Post.findByIdAndUpdate(
+    id,
+    { $inc: { views: 1 } },
+    { new: true } // 返回更新后的文档
+  );
 
   if (!novel) {
     return next(new AppError('小说不存在', 404));
   }
-
-  // 更新浏览次数
-  novel.views = (novel.views || 0) + 1;
-  await novel.save();
 
   res.status(200).json({
     success: true,
