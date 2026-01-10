@@ -41,7 +41,34 @@ class ForumCrawler:
         self.db = None
         self.posts_collection = None
         self.session = requests.Session()
+        self.user_id = None  # 存储任务所属的用户ID
         self.connect_db()
+        self._get_task_user_id()  # 获取任务的用户ID
+    
+    def _get_task_user_id(self):
+        """获取任务关联的用户ID"""
+        try:
+            if not self.db:
+                return
+            
+            # 任务集合名称通常是 crawlertasks
+            tasks_collection = self.db['crawlertasks']
+            task = tasks_collection.find_one({'_id': ObjectId(self.task_id)})
+            
+            if task and 'userId' in task:
+                self.user_id = task['userId']
+                print(f"✓ 获取到任务用户ID: {self.user_id}", flush=True)
+            else:
+                # 尝试查找任意一个管理员用户作为默认 fallback
+                users_collection = self.db['users']
+                admin = users_collection.find_one({'role': 'admin'})
+                if admin:
+                    self.user_id = admin['_id']
+                    print(f"⚠ 未找到任务用户ID，使用管理员ID作为默认: {self.user_id}", flush=True)
+                else:
+                    print(f"⚠ 无法确定用户ID，保存数据可能会失败", file=sys.stderr, flush=True)
+        except Exception as e:
+            print(f"⚠ 获取任务用户信息失败: {e}", file=sys.stderr, flush=True)
     
     def _calculate_content_hash(self, content):
         """计算内容的 MD5 哈希值用于去重
@@ -982,6 +1009,7 @@ class ForumCrawler:
                 'status': 'active',
                 'tags': [task_type, 't66y'],
                 'taskId': ObjectId(self.task_id),
+                'userId': self.user_id,  # 添加用户ID
                 'createdAt': datetime.now(timezone.utc),
             }
             
@@ -1020,6 +1048,7 @@ class ForumCrawler:
                             'status': post['status'],
                             'tags': post['tags'],
                             'taskId': post['taskId'],
+                            'userId': post['userId'],  # 确保更新也包含 userId
                             'media': post['media'],
                             'contentHash': post.get('contentHash'),
                             'forumLastPostTime': post.get('forumLastPostTime'),
