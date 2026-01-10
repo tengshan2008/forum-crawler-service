@@ -837,6 +837,8 @@ class ForumCrawler:
                             
                             print(f"  ✓ 楼层 {floor_idx}: 提取 {len(text_content)} 字符", flush=True)
                             content_parts.append(text_content)
+                        else:
+                            print(f" × 楼层 {floor_idx}: 提取 {len(text_content)} 字符，不足 50 字符，被过滤", flush=True)
                     
                     # 提取图片
                     img_elements = content_div.find_all('img')
