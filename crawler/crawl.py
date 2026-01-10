@@ -695,7 +695,7 @@ class ForumCrawler:
                     if i > 0:
                         formatted_parts.append('\n\n--- 下一楼层/页面 ---\n\n')
                     formatted_parts.append(part)
-                content = ''.join(formatted_parts)
+                content = f"{title}\n" + ''.join(formatted_parts)
             else:
                 content = title + ' 暂无内容'
             
