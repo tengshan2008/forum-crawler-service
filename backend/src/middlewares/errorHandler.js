@@ -1,14 +1,19 @@
+const { consola } = require('consola');
+
 const errorHandler = (err, req, res, next) => {
   err.statusCode = err.statusCode || 500;
   err.message = err.message || 'Internal Server Error';
 
   // 打印错误日志，确保 docker logs 能看到
-  console.error('💥 Error:', {
+  consola.error({
     message: err.message,
-    stack: err.stack,
-    name: err.name,
-    path: req.path,
-    method: req.method
+    badge: true,
+    additional: JSON.stringify({
+      stack: err.stack,
+      name: err.name,
+      path: req.path,
+      method: req.method
+    }, null, 2)
   });
 
   // Wrong MongoDB ID error

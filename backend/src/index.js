@@ -1,5 +1,6 @@
 const express = require('express');
 const helmet = require('helmet');
+const { consola } = require('consola');
 const path = require('path');
 require('express-async-errors');
 const corsMiddleware = require('./middlewares/cors');
@@ -16,6 +17,21 @@ const app = express();
 
 // CORS middleware - must be before helmet to ensure headers are set correctly
 app.use(corsMiddleware);
+
+// HTTP request logger using consola
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const status = res.statusCode;
+    const msg = `${req.method} ${req.url} ${status} ${duration}ms`;
+
+    if (status >= 500) consola.error(msg);
+    else if (status >= 400) consola.warn(msg);
+    else consola.success(msg);
+  });
+  next();
+});
 
 // Security middleware
 app.use(helmet({
@@ -114,39 +130,42 @@ const startServer = async () => {
       }
     });
 
-    console.log('✓ 爬虫队列已初始化');
+    consola.success('爬虫队列已初始化');
 
     // 启动定时任务调度器
     await schedulerService.start();
 
     const server = app.listen(config.port, config.host, () => {
-      console.log(`✓ Server running on http://${config.host}:${config.port}`);
-      console.log(`✓ Environment: ${config.env}`);
+      consola.ready({
+        message: `Server running on http://${config.host}:${config.port}`,
+        badge: true
+      });
+      consola.info(`Environment: ${config.env}`);
     });
 
     // Graceful shutdown
     process.on('SIGTERM', async () => {
-      console.log('SIGTERM signal received: closing HTTP server');
-      
+      consola.info('SIGTERM signal received: closing HTTP server');
+
       // 停止定时任务调度器
       schedulerService.stop();
-      
+
       await crawlerQueue.close();
       server.close(() => {
-        console.log('HTTP server closed');
+        consola.success('HTTP server closed');
         process.exit(0);
       });
     });
   } catch (error) {
-    console.error('Failed to start server:', error);
-    
+    consola.error('Failed to start server:', error);
+
     // 如果启动失败，尝试停止定时任务调度器
     try {
       schedulerService.stop();
     } catch (stopError) {
       console.error('Error stopping scheduler:', stopError);
     }
-    
+
     process.exit(1);
   }
 };
