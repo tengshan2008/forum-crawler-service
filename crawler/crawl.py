@@ -679,7 +679,7 @@ class ForumCrawler:
                         continue
                     
                     # 提取内容
-                    print(f"  → 第 {page_num} 页: 提取中...", flush=True)
+                    print(f"  → 第 {page_num}/{total_pages} 页: 提取中...", flush=True)
                     all_content_parts, all_images = self._extract_page_content(
                         page_html, all_content_parts, all_images, page_num=page_num, task_type=task_type
                     )
