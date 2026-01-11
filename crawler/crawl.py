@@ -48,7 +48,7 @@ class ForumCrawler:
     def _get_task_user_id(self):
         """获取任务关联的用户ID"""
         try:
-            if not self.db:
+            if self.db is None:
                 return
             
             # 任务集合名称通常是 crawlertasks
@@ -1459,7 +1459,7 @@ class ForumCrawler:
     
     def close(self):
         """关闭数据库连接"""
-        if self.client:
+        if self.client is not None:
             self.client.close()
 
 def main():
