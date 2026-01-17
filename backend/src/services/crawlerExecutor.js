@@ -18,44 +18,44 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       // 构建 Python 爬虫命令
       const pythonPath = process.env.PYTHON_PATH || 'python3';
       const crawlerScript = '/app/crawler/crawl.py';
-      
+
       // 构建参数
-    // 批量采集需要更长的超时时间
-    // 计算方式: 
-    // - 每页约100个帖子，每个帖子需要 600-900 秒（获取、解析、保存、延迟）
-    // - 所以每页需要 6000-9000 秒 (25-30分钟)
-    // - 为了安全，设置为每页 150 分钟 (9000秒)
-    const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
-    
-    let defaultTimeout;
-    if (crawlType === 'batch') {
-      // 批量采集: 每页 9000 秒 (100分钟) + 30秒缓冲
-      const timePerPage = 9000;  // 秒
-      const bufferTime = 30;     // 秒
-      const calculatedTimeout = (maxPages * timePerPage + bufferTime) * 1000;  // 转换为毫秒
-      defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
-      console.log(`[爬虫] 批量采集配置: maxPages=${maxPages}, 预计超时时间=${defaultTimeout}ms (${(defaultTimeout/1000/60).toFixed(1)}分钟)`);
-    } else {
-      // 单贴采集: 10分钟
-      defaultTimeout = 600000;
-      console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (10分钟)`);
-    }
-    
-    // 始终使用计算出的 defaultTimeout，忽略数据库中可能存储的旧 timeout 值
-    const timeout = defaultTimeout;
-    const startPage = taskConfig?.startPage || 1;
-    const args = [
-      crawlerScript,
-      '--url', forumUrl,
-      '--type', taskType,
-      '--task-id', taskId,
-      '--crawl-type', crawlType,  // 添加采集类型参数
-      '--max-depth', taskConfig?.maxDepth || 3,
-      '--delay', taskConfig?.delay || 1000,
-      '--timeout', timeout,
-      '--max-pages', maxPages, // 添加最大页数参数
-      '--start-page', startPage, // 添加起始页参数
-    ];
+      // 批量采集需要更长的超时时间
+      // 计算方式: 
+      // - 每页约100个帖子，每个帖子需要 600-900 秒（获取、解析、保存、延迟）
+      // - 所以每页需要 6000-9000 秒 (25-30分钟)
+      // - 为了安全，设置为每页 200 分钟 (12000秒)
+      const maxPages = taskConfig?.maxPages !== undefined ? taskConfig.maxPages : 10;
+
+      let defaultTimeout;
+      if (crawlType === 'batch') {
+        // 批量采集: 每页 12000 秒 (200分钟) + 30秒缓冲
+        const timePerPage = 12000;  // 秒
+        const bufferTime = 30;     // 秒
+        const calculatedTimeout = (maxPages * timePerPage + bufferTime) * 1000;  // 转换为毫秒
+        defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
+        console.log(`[爬虫] 批量采集配置: maxPages=${maxPages}, 预计超时时间=${defaultTimeout}ms (${(defaultTimeout / 1000 / 60).toFixed(1)}分钟)`);
+      } else {
+        // 单贴采集: 10分钟
+        defaultTimeout = 600000;
+        console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (10分钟)`);
+      }
+
+      // 始终使用计算出的 defaultTimeout，忽略数据库中可能存储的旧 timeout 值
+      const timeout = defaultTimeout;
+      const startPage = taskConfig?.startPage || 1;
+      const args = [
+        crawlerScript,
+        '--url', forumUrl,
+        '--type', taskType,
+        '--task-id', taskId,
+        '--crawl-type', crawlType,  // 添加采集类型参数
+        '--max-depth', taskConfig?.maxDepth || 3,
+        '--delay', taskConfig?.delay || 1000,
+        '--timeout', timeout,
+        '--max-pages', maxPages, // 添加最大页数参数
+        '--start-page', startPage, // 添加起始页参数
+      ];
 
       // 构建完整的命令字符串用于日志记录
       const commandStr = `${pythonPath} ${args.join(' ')}`;
@@ -99,7 +99,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
             if (line.includes('PROGRESS:')) {
               const progress = parseInt(line.split('PROGRESS:')[1]);
               updateTaskProgress(taskId, progress);
-            } 
+            }
             // 替代格式: [图片下载] 进度: X/Y
             else if (line.includes('[图片下载] 进度:')) {
               const match = line.match(/进度:\s*(\d+)\/(\d+)/);
@@ -109,7 +109,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
                 const progress = total > 0 ? Math.round((current / total) * 100) : 0;
                 updateTaskProgress(taskId, progress);
               }
-            } 
+            }
             // 爬取数量: CRAWLED:XX
             else if (line.includes('CRAWLED:')) {
               const count = parseInt(line.split('CRAWLED:')[1]);
@@ -150,14 +150,14 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
 
         if (code === 0) {
           console.log(`[爬虫] 任务 ${taskId} 完成`);
-          
+
           // 构建更新数据
           const updateData = {
             status: 'completed',
             progress: 100,
             endTime: new Date(),
           };
-          
+
           // 如果有爬虫结果，更新统计信息
           if (crawlerResult) {
             if (crawlerResult.crawled_posts !== undefined) {
@@ -175,12 +175,12 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
               console.log(`[爬虫] 保存跳过原因: ${crawlerResult.skip_details.length} 条`);
             }
           }
-          
+
           // 如果解析到标题，更新任务名称
           if (crawlerOutput.title) {
             updateData.name = crawlerOutput.title;
           }
-          
+
           try {
             await Task.findByIdAndUpdate(taskId, updateData, { new: true });
             if (crawlerOutput.title) {
@@ -189,7 +189,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
           } catch (error) {
             console.error(`[爬虫] 更新任务失败: ${error.message}`);
           }
-          
+
           resolve({
             success: true,
             taskId,
@@ -203,7 +203,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
           try {
             await Task.findByIdAndUpdate(
               taskId,
-              { 
+              {
                 status: 'failed',
                 endTime: new Date(),
               },
