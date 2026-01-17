@@ -36,8 +36,8 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
         defaultTimeout = Math.max(1800000, calculatedTimeout);  // 至少30分钟
         console.log(`[爬虫] 批量采集配置: maxPages=${maxPages}, 预计超时时间=${defaultTimeout}ms (${(defaultTimeout / 1000 / 60).toFixed(1)}分钟)`);
       } else {
-        // 单贴采集: 10分钟
-        defaultTimeout = 600000;
+        // 单贴采集: 30分钟
+        defaultTimeout = 1800000;
         console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (10分钟)`);
       }
 
