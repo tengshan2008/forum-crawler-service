@@ -38,7 +38,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       } else {
         // 单贴采集: 30分钟
         defaultTimeout = 1800000;
-        console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (10分钟)`);
+        console.log(`[爬虫] 单贴采集配置: 超时时间=${defaultTimeout}ms (30分钟)`);
       }
 
       // 始终使用计算出的 defaultTimeout，忽略数据库中可能存储的旧 timeout 值
