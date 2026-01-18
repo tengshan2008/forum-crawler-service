@@ -179,7 +179,7 @@ class ForumCrawler:
         result = self.fetch_page_with_final_url(url, max_retries, delay_range, request_timeout)
         return result['html'] if result else None
     
-    def fetch_page_with_final_url(self, url, max_retries=3, delay_range=(2, 4), request_timeout=30):
+    def fetch_page_with_final_url(self, url, max_retries=3, delay_range=(1, 2), request_timeout=30):
         """获取页面内容和最终URL（跟踪重定向和meta refresh）
         
         Args:
