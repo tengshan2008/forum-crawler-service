@@ -167,7 +167,7 @@ class ForumCrawler:
             print(f"✗ MongoDB 连接失败: {e}", file=sys.stderr, flush=True)
             raise
     
-    def fetch_page(self, url, max_retries=3, delay_range=(2, 4), request_timeout=30):
+    def fetch_page(self, url, max_retries=3, delay_range=(1, 2), request_timeout=30):
         """获取页面内容 - 带重试和反爬虫
         
         Args:
