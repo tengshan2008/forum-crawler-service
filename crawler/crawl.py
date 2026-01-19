@@ -222,6 +222,10 @@ class ForumCrawler:
                     response.encoding = 'utf-8'
                     final_url = response.url  # 获取最终URL（经过HTTP重定向）
                     
+                    if self._is_garbage_content(response.text):
+                        print(f"✗ 页面内容疑似乱码，重试: {url}", flush=True)
+                        continue
+
                     # 进一步检查meta refresh或其他转向机制
                     # t66y的read.php?tid= 页面使用 meta refresh 来转向到实际的htm_data页面
                     try:
