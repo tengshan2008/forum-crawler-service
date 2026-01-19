@@ -905,7 +905,7 @@ class ForumCrawler:
                                 })
                                 print(f"    ✓ 图片 {img_idx}: {img_url[:80]}...", flush=True)
             else:
-                print(f"⚠ 页面 {page_num}: 未能找到任何内容容器，检查 HTML 结构", flush=True)
+                print(f"⚠ 页面 {page_num}: 未能找到任何内容容器，检查 HTML 结构；内容预览：{html[:100]}", flush=True)
             
             return content_parts, images
         except Exception as e:
