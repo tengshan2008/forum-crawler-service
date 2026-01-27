@@ -13,6 +13,13 @@ const router = express.Router();
 router.get('/images', browseController.getImages);
 
 /**
+ * GET /api/browse/images/groups
+ * 获取按网页分组的图片列表
+ * 查询参数: page, limit, taskId, sortBy
+ */
+router.get('/images/groups', browseController.getImageGroups);
+
+/**
  * POST /api/browse/images/search
  * 搜索和筛选图片
  * 请求体: keyword, taskId, startDate, endDate, page, limit, sortBy

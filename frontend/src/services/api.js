@@ -98,6 +98,7 @@ export const postApi = {
 export const browseApi = {
   // Image API
   getImages: (params) => api.get('/browse/images', { params }),
+  getImageGroups: (params) => api.get('/browse/images/groups', { params }),
   searchImages: (data) => api.post('/browse/images/search', data),
   
   // Novel API

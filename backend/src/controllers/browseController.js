@@ -90,6 +90,67 @@ exports.getImages = catchAsync(async (req, res) => {
 });
 
 /**
+ * 获取按网页分组的图片列表
+ */
+exports.getImageGroups = catchAsync(async (req, res) => {
+  const { page = 1, limit = 12, taskId, sortBy = '-createdAt' } = req.query;
+  const pageNum = parseInt(page);
+  const pageSize = parseInt(limit);
+  const skip = (pageNum - 1) * pageSize;
+
+  // 构建查询条件
+  const filter = {
+    postType: { $in: ['image', 'mixed'] },
+    media: { $exists: true, $ne: [] }, // 确保有图片
+  };
+
+  if (taskId) {
+    filter.taskId = taskId;
+  }
+
+  // 查询帖子，按网页分组
+  const posts = await Post.find(filter)
+    .select('title author sourceUrl taskId media createdAt')
+    .sort(sortBy)
+    .skip(skip)
+    .limit(pageSize);
+
+  // 构建分组数据
+  const imageGroups = posts.map((post) => ({
+    _id: post._id,
+    title: post.title,
+    author: post.author,
+    sourceUrl: post.sourceUrl,
+    taskId: post.taskId,
+    createdAt: post.createdAt,
+    totalImages: post.media.length,
+    previewImages: post.media.slice(0, 4).map((img) => ({
+      url: img.url,
+      description: img.description,
+    })),
+    allImages: post.media.map((img) => ({
+      url: img.url,
+      originalUrl: img.originalUrl,
+      description: img.description,
+    })),
+  }));
+
+  // 获取总数
+  const total = await Post.countDocuments(filter);
+
+  res.status(200).json({
+    success: true,
+    data: imageGroups,
+    pagination: {
+      page: pageNum,
+      limit: pageSize,
+      total,
+      pages: Math.ceil(total / pageSize),
+    },
+  });
+});
+
+/**
  * 搜索和筛选图片
  */
 exports.searchImages = catchAsync(async (req, res) => {
