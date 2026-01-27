@@ -432,9 +432,14 @@ const PostPreview = () => {
             {/* 图片网格区域 */}
             {post.media && post.media.length > 0 ? (
               <div>
-                <h4 style={{ marginBottom: 12, color: '#666' }}>
-                  媒体内容 ({post.media.length} 项)
-                </h4>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <h4 style={{ margin: 0, color: '#666' }}>
+                    媒体内容 ({post.media.length} 项)
+                  </h4>
+                  <span style={{ fontSize: '12px', color: '#999' }}>
+                    💡 点击图片预览，按 ⬅️ / ➡️ 键切换，ESC 关闭
+                  </span>
+                </div>
                 <Image.PreviewGroup>
                   <Row gutter={[12, 12]}>
                     {post.media.map((m, idx) => (

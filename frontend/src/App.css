@@ -145,6 +145,15 @@
   background-color: #fafafa;
 }
 
+/* Modal 图片预览 */
+.ant-modal-body {
+  background: #ffffff;
+}
+
+.ant-modal {
+  background: #ffffff;
+}
+
 /* Pagination 分页 */
 .ant-pagination {
   text-align: right;

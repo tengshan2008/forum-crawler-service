@@ -55,6 +55,7 @@ const ImageBrowser = () => {
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [fullViewMode, setFullViewMode] = useState(false);
 
   // 获取任务列表
   useEffect(() => {
@@ -135,9 +136,16 @@ const ImageBrowser = () => {
   };
 
   const handleImageClick = (imageUrl, groupImages) => {
-    const index = groupImages.findIndex(img => img.url === imageUrl);
-    setPreviewImage(imageUrl);
-    setPreviewIndex(index);
+    // 如果当前已经在预览同一张图片，则切换到全图模式
+    if (previewImage === imageUrl) {
+      setFullViewMode(!fullViewMode);
+    } else {
+      // 否则进入裁剪预览模式
+      const index = groupImages.findIndex(img => img.url === imageUrl);
+      setPreviewImage(imageUrl);
+      setPreviewIndex(index);
+      setFullViewMode(false);
+    }
   };
 
   const handlePreviewNavigate = (direction) => {
@@ -146,6 +154,7 @@ const ImageBrowser = () => {
     if (newIndex >= 0 && newIndex < selectedGroup.allImages.length) {
       setPreviewIndex(newIndex);
       setPreviewImage(selectedGroup.allImages[newIndex].url);
+      setFullViewMode(false); // 切换图片时重置为裁剪模式
     }
   };
 
@@ -189,6 +198,37 @@ const ImageBrowser = () => {
     700: 2,
     500: 1,
   };
+
+  // 键盘事件处理 - 左右键切换图片
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!previewImage || !selectedGroup) return;
+      
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (previewIndex > 0) {
+          handlePreviewNavigate(-1);
+        }
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (previewIndex < selectedGroup.allImages.length - 1) {
+          handlePreviewNavigate(1);
+        }
+      } else if (e.key === 'Escape') {
+        // ESC 键关闭预览
+        setPreviewImage(null);
+        setFullViewMode(false);
+      }
+    };
+
+    // 只在预览图片时添加事件监听
+    if (previewImage) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+      };
+    }
+  }, [previewImage, previewIndex, selectedGroup, handlePreviewNavigate]);
 
   if (loading && imageGroups.length === 0) {
     return (
@@ -417,61 +457,125 @@ const ImageBrowser = () => {
       <Modal
         visible={!!previewImage}
         footer={null}
-        onCancel={() => setPreviewImage(null)}
-        width='80%'
+        onCancel={() => {
+          setPreviewImage(null);
+          setFullViewMode(false);
+        }}
+        width='90%'
         centered
-        bodyStyle={{ padding: 0, position: 'relative' }}
+        bodyStyle={{
+          padding: 0,
+          background: '#000',
+          display: 'flex',
+          flexDirection: 'column',
+          maxHeight: '90vh'
+        }}
+        style={{ top: 20 }}
       >
-        <div style={{ position: 'relative' }}>
-          {selectedGroup && selectedGroup.allImages.length > 1 && (
-            <>
-              <Button
-                type="text"
-                icon={<LeftOutlined />}
-                onClick={() => handlePreviewNavigate(-1)}
-                disabled={previewIndex === 0}
-                style={{
-                  position: 'absolute',
-                  left: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 10,
-                  background: 'rgba(0,0,0,0.5)',
-                  color: 'white',
-                  border: 'none',
-                }}
-                size="large"
-              />
-              <Button
-                type="text"
-                icon={<RightOutlined />}
-                onClick={() => handlePreviewNavigate(1)}
-                disabled={previewIndex === selectedGroup.allImages.length - 1}
-                style={{
-                  position: 'absolute',
-                  right: '10px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  zIndex: 10,
-                  background: 'rgba(0,0,0,0.5)',
-                  color: 'white',
-                  border: 'none',
-                }}
-                size="large"
-              />
-            </>
-          )}
-          <div style={{ textAlign: 'center', padding: '10px', background: '#f5f5f5' }}>
-            {selectedGroup && (
+        {/* 导航按钮 */}
+        {selectedGroup && selectedGroup.allImages.length > 1 && (
+          <>
+            <Button
+              type="text"
+              icon={<LeftOutlined />}
+              onClick={() => handlePreviewNavigate(-1)}
+              disabled={previewIndex === 0}
+              style={{
+                position: 'absolute',
+                left: '20px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                border: 'none',
+                width: '50px',
+                height: '50px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              size="large"
+            />
+            <Button
+              type="text"
+              icon={<RightOutlined />}
+              onClick={() => handlePreviewNavigate(1)}
+              disabled={previewIndex === selectedGroup.allImages.length - 1}
+              style={{
+                position: 'absolute',
+                right: '20px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                zIndex: 10,
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                border: 'none',
+                width: '50px',
+                height: '50px',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+              size="large"
+            />
+          </>
+        )}
+
+        {/* 顶部信息栏 */}
+        <div style={{
+          background: 'rgba(0,0,0,0.8)',
+          color: 'white',
+          padding: '12px 20px',
+          textAlign: 'center',
+          fontSize: '14px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          {selectedGroup && (
+            <div style={{ flex: 1 }}>
               <span>
                 {previewIndex + 1} / {selectedGroup.allImages.length} - {selectedGroup.title}
+                {fullViewMode && <span style={{ marginLeft: '10px', color: '#1890ff' }}>全图模式</span>}
               </span>
-            )}
+            </div>
+          )}
+          <div style={{ fontSize: '12px', color: '#999' }}>
+            <span>⬅️ / ➡️ 切换 | ESC 关闭</span>
           </div>
-          <Image
+        </div>
+
+        {/* 图片容器 */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          minHeight: '400px',
+          maxHeight: 'calc(90vh - 100px)',
+          overflow: 'auto',
+          width: '100%',
+          background: '#ffffff'
+        }}>
+          <img
             src={previewImage}
             alt='预览'
-            style={{ width: '100%', maxHeight: '70vh', objectFit: 'contain' }}
+            style={{
+              maxWidth: '100%',
+              maxHeight: 'calc(90vh - 140px)',
+              width: 'auto',
+              height: 'auto',
+              objectFit: 'contain',
+              borderRadius: '4px',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+              cursor: fullViewMode ? 'default' : 'pointer',
+              margin: '0 auto'
+            }}
+            onClick={() => !fullViewMode && setFullViewMode(true)}
           />
         </div>
       </Modal>

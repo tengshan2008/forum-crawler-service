@@ -33,7 +33,6 @@ function LayoutContent() {
     const path = location.pathname;
     if (path === '/') return 'tasks';
     if (path === '/browse') return 'browse';
-    if (path.startsWith('/preview')) return 'preview';
     if (path === '/settings') return 'settings';
     return 'tasks';
   };
@@ -48,11 +47,6 @@ function LayoutContent() {
       key: 'browse',
       icon: <PictureOutlined />,
       label: <Link to="/browse">内容浏览</Link>,
-    },
-    {
-      key: 'preview',
-      icon: <FileTextOutlined />,
-      label: <Link to="/preview">内容预览</Link>,
     },
     {
       key: 'settings',
