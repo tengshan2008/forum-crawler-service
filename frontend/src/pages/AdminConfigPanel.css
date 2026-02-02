@@ -1,0 +1,44 @@
+.admin-config-panel {
+  padding: 20px;
+}
+
+.admin-config-panel .ant-card {
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.admin-config-panel .ant-form-item {
+  margin-bottom: 20px;
+}
+
+.admin-config-panel .ant-input,
+.admin-config-panel .ant-input-number,
+.admin-config-panel .ant-select {
+  border-radius: 4px;
+}
+
+.admin-config-panel .ant-btn-primary {
+  background-color: #1890ff;
+}
+
+.admin-config-panel .ant-table {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-config-panel .ant-table th {
+  background-color: #fafafa;
+  font-weight: 600;
+}
+
+.admin-config-panel .ant-table td {
+  padding: 12px;
+}
+
+.admin-config-panel .ant-modal {
+  border-radius: 8px;
+}
+
+.admin-config-panel .ant-modal-content {
+  padding: 24px;
+}

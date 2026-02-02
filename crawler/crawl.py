@@ -933,8 +933,10 @@ class ForumCrawler:
             
             # 计算内容哈希值
             content_hash = self._calculate_content_hash(post_data['content'])
+            content_length = len(post_data['content'])
             if content_hash:
                 print(f"✓ 内容哈希: {content_hash}", flush=True)
+            print(f"✓ 内容长度: {content_length} 字符", flush=True)
             
             # 根据任务类型决定是否保存内容
             if task_type == 'novel':
@@ -1019,9 +1021,11 @@ class ForumCrawler:
                 'createdAt': datetime.now(timezone.utc),
             }
             
-            # 添加内容哈希
+            # 添加内容哈希和内容长度
             if content_hash:
                 post['contentHash'] = content_hash
+            if content_length is not None:
+                post['contentLength'] = content_length
             
             # 添加论坛最后发表时间
             if forum_last_post_time:
@@ -1057,6 +1061,7 @@ class ForumCrawler:
                             'userId': post['userId'],  # 确保更新也包含 userId
                             'media': post['media'],
                             'contentHash': post.get('contentHash'),
+                            'contentLength': post.get('contentLength'),
                             'forumLastPostTime': post.get('forumLastPostTime'),
                             'updatedAt': datetime.now(timezone.utc),
                         },
@@ -1079,18 +1084,18 @@ class ForumCrawler:
             traceback.print_exc()
             return False
     
-    def _is_post_exist(self, post_url, content_hash=None, forum_last_post_time=None):
-        """检查帖子是否已经存在于数据库中（支持时间戳快速判断和内容哈希去重）
+    def _is_post_exist(self, post_url, content_hash=None, content_length=None):
+        """检查帖子是否已经存在于数据库中（支持内容长度判断和内容哈希去重）
         
         Args:
             post_url: 帖子URL
             content_hash: 内容哈希值（如果提供，优先使用）
-            forum_last_post_time: 论坛上该帖最后一条回复的时间（用于快速判断是否有更新）
+            content_length: 新爬取的内容长度（字符数）
             
         Returns:
             {
                 'exists': bool,
-                'reason': str,  # duplicate|same_url|content_duplicate|unchanged
+                'reason': str,  # duplicate|same_url|content_duplicate|shorter_content
                 'message': str,
                 'shouldUpdate': bool?  # 是否应该覆盖更新
             }
@@ -1100,41 +1105,37 @@ class ForumCrawler:
             url_post = self.posts_collection.find_one({'sourceUrl': post_url})
             
             if url_post:
-                # URL存在，进行时间戳快速判断
-                if forum_last_post_time:
-                    existing_time = url_post.get('forumLastPostTime')
+                # URL存在，进行内容长度判断
+                if content_length is not None:
+                    existing_length = url_post.get('contentLength')
                     
-                    if existing_time:
-                        # 都有时间信息，进行比较
-                        if isinstance(forum_last_post_time, str):
-                            try:
-                                # 解析时间戳字符串
-                                from datetime import datetime
-                                new_time = datetime.fromisoformat(forum_last_post_time.replace('s', ''))
-                            except:
-                                new_time = forum_last_post_time
-                        else:
-                            new_time = forum_last_post_time
-                        
-                        if isinstance(existing_time, str):
-                            try:
-                                from datetime import datetime
-                                existing_time = datetime.fromisoformat(existing_time.replace('s', ''))
-                            except:
-                                pass
-                        
-                        # 比较时间
-                        if str(new_time).split('.')[0] == str(existing_time).split('.')[0]:
-                            # 时间相同，内容没有更新
-                            print(f"⏰ 时间戳相同（{new_time}），帖子未更新，快速跳过", flush=True)
+                    if existing_length is not None:
+                        # 都有长度信息，进行比较
+                        if content_length > existing_length:
+                            # 新内容更长，需要更新
+                            print(f"📏 内容长度更新（旧：{existing_length} → 新：{content_length}），准备覆盖更新", flush=True)
+                            return {
+                                'exists': False,
+                                'reason': None,
+                                'message': None,
+                                'shouldUpdate': True
+                            }
+                        elif content_length == existing_length:
+                            # 内容长度相同，判断为重复
+                            print(f"📏 内容长度相同（{content_length}），帖子未更新，快速跳过", flush=True)
                             return {
                                 'exists': True,
                                 'reason': 'unchanged',
-                                'message': f'帖子未更新（时间戳相同：{new_time}）'
+                                'message': f'帖子未更新（内容长度相同：{content_length}）'
                             }
                         else:
-                            # 时间不同，可能有更新，继续进行内容检查
-                            print(f"⏰ 时间戳不同（旧：{existing_time} → 新：{new_time}），需要检查是否有内容更新", flush=True)
+                            # 新内容更短，保留原来的
+                            print(f"📏 新内容更短（旧：{existing_length} → 新：{content_length}），保留原内容", flush=True)
+                            return {
+                                'exists': True,
+                                'reason': 'shorter_content',
+                                'message': f'新内容更短（旧：{existing_length}字 → 新：{content_length}字），保留原内容'
+                            }
                 
                 # 进行内容哈希检查
                 if content_hash:
@@ -1147,13 +1148,14 @@ class ForumCrawler:
                             'message': '帖子已存在（相同URL和内容）'
                         }
                     elif existing_hash and existing_hash != content_hash:
-                        # 相同URL，不同内容 - 允许更新
-                        return {
-                            'exists': False,
-                            'reason': None,
-                            'message': None,
-                            'shouldUpdate': True
-                        }
+                        # 相同URL，不同内容 - 如果没有内容长度信息，允许更新
+                        if content_length is None:
+                            return {
+                                'exists': False,
+                                'reason': None,
+                                'message': None,
+                                'shouldUpdate': True
+                            }
                 
                 # 无法通过哈希验证，保守处理
                 return {
@@ -1336,9 +1338,10 @@ class ForumCrawler:
                     
                     # 计算内容哈希值
                     content_hash = self._calculate_content_hash(post_data['content'])
+                    content_length = len(post_data['content'])
                     
-                    # 现在进行基于内容哈希的检查
-                    check_result = self._is_post_exist(actual_post_url, content_hash)
+                    # 现在进行基于内容长度和哈希的检查
+                    check_result = self._is_post_exist(actual_post_url, content_hash, content_length)
                     if check_result['exists']:
                         print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_post_url}", flush=True)
                         skipped_count += 1
@@ -1409,9 +1412,10 @@ class ForumCrawler:
                 
                 # 计算内容哈希值
                 content_hash = self._calculate_content_hash(post_data['content'])
+                content_length = len(post_data['content'])
                 
-                # 检查帖子是否已存在（基于内容哈希）
-                check_result = self._is_post_exist(actual_forum_url, content_hash)
+                # 检查帖子是否已存在（基于内容长度和哈希）
+                check_result = self._is_post_exist(actual_forum_url, content_hash, content_length)
                 if check_result['exists']:
                     print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_forum_url}", flush=True)
                     return {

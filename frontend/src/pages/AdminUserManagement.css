@@ -1,0 +1,69 @@
+.admin-user-management {
+  padding: 20px;
+}
+
+.admin-user-management .ant-card {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+}
+
+.admin-user-management .ant-table {
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.admin-user-management .ant-table th {
+  background-color: #fafafa;
+  font-weight: 600;
+}
+
+.admin-user-management .ant-table-cell {
+  padding: 12px;
+}
+
+.admin-user-management .ant-tag {
+  border-radius: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.admin-user-management .ant-btn {
+  border-radius: 4px;
+}
+
+.admin-user-management .ant-btn-text {
+  padding: 4px 8px;
+}
+
+.admin-user-management .ant-modal {
+  border-radius: 8px;
+}
+
+.admin-user-management .ant-modal-content {
+  padding: 24px;
+}
+
+.admin-user-management .ant-form {
+  margin-top: 16px;
+}
+
+.admin-user-management .ant-form-item {
+  margin-bottom: 20px;
+}
+
+/* 操作按钮组 */
+.admin-user-management .ant-space {
+  width: 100%;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .admin-user-management .ant-table-cell {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .admin-user-management .ant-btn {
+    font-size: 12px;
+  }
+}
