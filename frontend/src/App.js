@@ -1,12 +1,16 @@
 import React from 'react';
 import { Layout, Menu, Button } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, Outlet, useLocation } from 'react-router-dom';
-import { FileTextOutlined, PictureOutlined, SettingOutlined, LogoutOutlined } from '@ant-design/icons';
+import { FileTextOutlined, PictureOutlined, SettingOutlined, LogoutOutlined, DashboardOutlined, TeamOutlined } from '@ant-design/icons';
 import TaskList from './pages/TaskList';
 import PostPreview from './pages/PostPreview';
 import BrowsePage from './pages/BrowsePage';
+import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import AdminDashboard from './pages/AdminDashboard';
+import AdminConfigPanel from './pages/AdminConfigPanel';
+import AdminUserManagement from './pages/AdminUserManagement';
 import PrivateRoute from './components/PrivateRoute';
 import { getCurrentUser, logout } from './services/authService';
 import './App.css';
@@ -33,6 +37,7 @@ function LayoutContent() {
     const path = location.pathname;
     if (path === '/') return 'tasks';
     if (path === '/browse') return 'browse';
+    if (path.startsWith('/admin')) return 'admin';
     if (path === '/settings') return 'settings';
     return 'tasks';
   };
@@ -48,10 +53,33 @@ function LayoutContent() {
       icon: <PictureOutlined />,
       label: <Link to="/browse">内容浏览</Link>,
     },
+    // 只有admin角色才显示系统管理菜单
+    ...(user?.role === 'admin' ? [{
+      key: 'admin',
+      label: '系统管理',
+      icon: <DashboardOutlined />,
+      children: [
+        {
+          key: 'admin-dashboard',
+          icon: <DashboardOutlined />,
+          label: <Link to="/admin/dashboard">监控仪表板</Link>,
+        },
+        {
+          key: 'admin-config',
+          icon: <SettingOutlined />,
+          label: <Link to="/admin/config">系统配置</Link>,
+        },
+        {
+          key: 'admin-users',
+          icon: <TeamOutlined />,
+          label: <Link to="/admin/users">用户管理</Link>,
+        },
+      ],
+    }] : []),
     {
       key: 'settings',
       icon: <SettingOutlined />,
-      label: <Link to="/settings">设置</Link>,
+      label: <Link to="/settings">个人设置</Link>,
     },
   ];
 
@@ -112,6 +140,11 @@ function App() {
             <Route path="/" element={<TaskList />} />
             <Route path="/browse" element={<BrowsePage />} />
             <Route path="/preview/:taskId" element={<PostPreview />} />
+            <Route path="/settings" element={<Settings />} />
+            {/* 系统管理路由 */}
+            <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/config" element={<AdminConfigPanel />} />
+            <Route path="/admin/users" element={<AdminUserManagement />} />
           </Route>
         </Route>
       </Routes>

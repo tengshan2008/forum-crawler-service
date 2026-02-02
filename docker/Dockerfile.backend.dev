@@ -23,6 +23,7 @@ RUN npm install
 
 # Copy source code
 COPY backend/src ./src
+COPY backend/scripts ./scripts
 COPY crawler /app/crawler
 COPY public /app/public
 
