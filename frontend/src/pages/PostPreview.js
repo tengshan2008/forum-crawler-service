@@ -159,12 +159,12 @@ const PostPreview = () => {
     return media.url;
   };
 
-  const fetchPosts = useCallback(async () => {
+  const fetchPosts = useCallback(async (pageNum, pageSize) => {
     try {
       setLoading(true);
       const response = await postApi.getByTaskId(taskId, {
-        page: pagination.current,
-        limit: pagination.pageSize,
+        page: pageNum,
+        limit: pageSize,
       });
 
       if (response.data && response.data.data) {
@@ -181,15 +181,16 @@ const PostPreview = () => {
     } finally {
       setLoading(false);
     }
-  }, [taskId, pagination.current, pagination.pageSize]);
+  }, [taskId]);
 
   // 当 taskId 或分页参数变化时重新获取数据
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (taskId) {
       fetchTaskInfo();
-      fetchPosts();
+      fetchPosts(pagination.current, pagination.pageSize);
     }
-  }, [taskId, fetchTaskInfo, fetchPosts]);
+  }, [taskId, pagination.current, pagination.pageSize, fetchTaskInfo, fetchPosts]);
 
   if (!loading && (!posts || posts.length === 0)) {
     return (

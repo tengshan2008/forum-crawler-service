@@ -13,11 +13,8 @@ import {
   Pagination,
   message,
   Empty,
-  Tooltip,
   Modal,
-  Avatar,
   Typography,
-  Divider,
 } from 'antd';
 import {
   DownloadOutlined,
@@ -27,7 +24,6 @@ import {
   LeftOutlined,
   RightOutlined,
   EyeOutlined,
-  PictureOutlined,
 } from '@ant-design/icons';
 import Masonry from 'react-masonry-css';
 import dayjs from 'dayjs';
@@ -35,7 +31,7 @@ import { browseApi } from '../services/api';
 import './ImageBrowser.css';
 
 const { RangePicker } = DatePicker;
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const ImageBrowser = () => {
   const [imageGroups, setImageGroups] = useState([]);
@@ -97,11 +93,6 @@ const ImageBrowser = () => {
     fetchImageGroups(page, pagination.pageSize);
   };
 
-  const handlePageSizeChange = (value) => {
-    setPagination({ ...pagination, current: 1, pageSize: value });
-    fetchImageGroups(1, value);
-  };
-
   const handleTaskFilter = (value) => {
     setFilters({ ...filters, taskId: value });
   };
@@ -148,15 +139,17 @@ const ImageBrowser = () => {
     }
   };
 
-  const handlePreviewNavigate = (direction) => {
-    if (!selectedGroup) return;
-    const newIndex = previewIndex + direction;
-    if (newIndex >= 0 && newIndex < selectedGroup.allImages.length) {
-      setPreviewIndex(newIndex);
-      setPreviewImage(selectedGroup.allImages[newIndex].url);
-      setFullViewMode(false); // 切换图片时重置为裁剪模式
-    }
-  };
+  const handlePreviewNavigate = useCallback((direction) => {
+    setPreviewIndex(prevIndex => {
+      const newIndex = prevIndex + direction;
+      if (selectedGroup && newIndex >= 0 && newIndex < selectedGroup.allImages.length) {
+        setPreviewImage(selectedGroup.allImages[newIndex].url);
+        setFullViewMode(false); // 切换图片时重置为裁剪模式
+        return newIndex;
+      }
+      return prevIndex;
+    });
+  }, [selectedGroup]);
 
   const handleDownload = (imageUrl) => {
     const link = document.createElement('a');
@@ -207,12 +200,18 @@ const ImageBrowser = () => {
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         if (previewIndex > 0) {
-          handlePreviewNavigate(-1);
+          const newIndex = previewIndex - 1;
+          setPreviewImage(selectedGroup.allImages[newIndex].url);
+          setPreviewIndex(newIndex);
+          setFullViewMode(false);
         }
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         if (previewIndex < selectedGroup.allImages.length - 1) {
-          handlePreviewNavigate(1);
+          const newIndex = previewIndex + 1;
+          setPreviewImage(selectedGroup.allImages[newIndex].url);
+          setPreviewIndex(newIndex);
+          setFullViewMode(false);
         }
       } else if (e.key === 'Escape') {
         // ESC 键关闭预览
@@ -228,7 +227,7 @@ const ImageBrowser = () => {
         document.removeEventListener('keydown', handleKeyDown);
       };
     }
-  }, [previewImage, previewIndex, selectedGroup, handlePreviewNavigate]);
+  }, [previewImage, previewIndex, selectedGroup]);
 
   if (loading && imageGroups.length === 0) {
     return (
