@@ -79,6 +79,8 @@ exports.createTask = catchAsync(async (req, res) => {
     userId: req.user.id,
   });
 
+  console.log(`[任务创建] 任务ID: ${task._id}, 用户ID: ${task.userId}`);
+
   res.status(201).json({
     success: true,
     data: task,
@@ -130,6 +132,8 @@ exports.startTask = catchAsync(async (req, res) => {
   if (!task) {
     throw new AppError('Task not found', 404);
   }
+
+  console.log(`[任务启动] 任务ID: ${task._id}, 用户ID: ${task.userId}`);
 
   if (task.status === 'running') {
     throw new AppError('Task is already running', 400);

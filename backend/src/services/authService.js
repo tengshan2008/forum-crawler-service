@@ -141,10 +141,20 @@ class AuthService {
    * 登出用户
    */
   async logout(userId, refreshToken) {
+    // 确保userId存在
+    if (!userId) {
+      throw new Error('用户ID不存在，无法登出');
+    }
+
     const user = await User.findById(userId);
-    if (user && refreshToken) {
+    if (user && user.refreshTokens && Array.isArray(user.refreshTokens)) {
       // 从数据库中删除该刷新令牌
-      user.refreshTokens = user.refreshTokens.filter((t) => t.token !== refreshToken);
+      if (refreshToken) {
+        user.refreshTokens = user.refreshTokens.filter((t) => t && t.token !== refreshToken);
+      } else {
+        // 如果没有提供refreshToken，清除所有令牌（登出所有设备）
+        user.refreshTokens = [];
+      }
       await user.save();
     }
   }

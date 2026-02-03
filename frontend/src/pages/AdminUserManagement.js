@@ -18,7 +18,7 @@ import {
   LockOutlined,
   UnlockOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
+import api from '../services/api';
 import './AdminUserManagement.css';
 
 const AdminUserManagement = () => {
@@ -42,7 +42,7 @@ const AdminUserManagement = () => {
   const fetchUsers = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/admin/users', {
+      const response = await api.get('/admin/users', {
         params: {
           limit: pagination.pageSize,
           skip: (pagination.current - 1) * pagination.pageSize,
@@ -63,8 +63,8 @@ const AdminUserManagement = () => {
   const handleUpdateRole = async (values) => {
     try {
       setLoading(true);
-      const response = await axios.put(
-        `/api/admin/users/${selectedUser._id}/role`,
+      const response = await api.put(
+        `/admin/users/${selectedUser._id}/role`,
         { role: values.role }
       );
 
@@ -83,8 +83,8 @@ const AdminUserManagement = () => {
   const handleToggleStatus = async (userId) => {
     try {
       setLoading(true);
-      const response = await axios.patch(
-        `/api/admin/users/${userId}/status`
+      const response = await api.patch(
+        `/admin/users/${userId}/status`
       );
 
       if (response.data.success) {
@@ -106,8 +106,8 @@ const AdminUserManagement = () => {
       }
 
       setLoading(true);
-      const response = await axios.post(
-        `/api/admin/users/${selectedUser._id}/reset-password`,
+      const response = await api.post(
+        `/admin/users/${selectedUser._id}/reset-password`,
         { newPassword }
       );
 

@@ -18,7 +18,6 @@ import {
   LineChartOutlined,
   FileTextOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
 import {
   LineChart,
   Line,
@@ -31,6 +30,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts';
+import api from '../services/api';
 import './AdminDashboard.css';
 
 const AdminDashboard = () => {
@@ -50,10 +50,10 @@ const AdminDashboard = () => {
     try {
       setLoading(true);
       const [statusRes, metricsRes, reportRes, storageRes] = await Promise.all([
-        axios.get('/api/admin/monitor/status'),
-        axios.get('/api/admin/monitor/history?timeRange=hour'),
-        axios.get('/api/admin/monitor/report?timeRange=day'),
-        axios.get('/api/admin/storage/stats'),
+        api.get('/admin/monitor/status'),
+        api.get('/admin/monitor/history?timeRange=hour'),
+        api.get('/admin/monitor/report?timeRange=day'),
+        api.get('/admin/storage/stats'),
       ]);
 
       if (statusRes.data.success) {
@@ -78,7 +78,7 @@ const AdminDashboard = () => {
   const generateReport = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/admin/monitor/report?timeRange=day');
+      const response = await api.get('/admin/monitor/report?timeRange=day');
       if (response.data.success) {
         setReport(response.data.data);
         message.success('报告已生成');
@@ -397,34 +397,34 @@ const AdminDashboard = () => {
       )}
 
       {/* 性能报告 */}
-      {report && (
+      {report && report.summary && (
         <Card title="日志性能报告" className="report-card">
           <Row gutter={[16, 16]}>
             <Col xs={24} sm={12} md={6}>
               <Statistic
                 title="平均CPU使用率"
-                value={report.summary.avgCpuUsage}
+                value={report.summary.avgCpuUsage || 0}
                 suffix="%"
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
               <Statistic
                 title="平均内存使用率"
-                value={report.summary.avgMemoryUsage}
+                value={report.summary.avgMemoryUsage || 0}
                 suffix="%"
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
               <Statistic
                 title="平均查询时间"
-                value={report.summary.avgQueryTime}
+                value={report.summary.avgQueryTime || 0}
                 suffix="ms"
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
               <Statistic
                 title="错误率"
-                value={report.summary.errorRate}
+                value={report.summary.errorRate || 0}
                 suffix="%"
               />
             </Col>

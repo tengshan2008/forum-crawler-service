@@ -119,22 +119,31 @@ exports.logout = async (req, res) => {
       }
     }
     
-    const refreshToken =
-      req.cookies.refreshToken || req.body.refreshToken;
+    // 获取刷新令牌（仅从body中获取，避免req.cookies未定义错误）
+    const refreshToken = req.body && req.body.refreshToken ? req.body.refreshToken : null;
+
+    // 清除刷新令牌cookie（无论是否有有效令牌）
+    res.clearCookie('refreshToken');
 
     // 如果有用户ID，则从数据库中移除刷新令牌
     if (userId) {
-      await authService.logout(userId, refreshToken);
+      try {
+        await authService.logout(userId, refreshToken);
+      } catch (dbError) {
+        console.error('数据库登出错误:', dbError.message);
+        // 继续执行，不中断登出流程
+      }
+    } else {
+      // 即使没有有效令牌，也返回成功（因为cookie已清除）
+      console.log('登出请求中没有有效令牌，但cookie已清除');
     }
-
-    // 清除刷新令牌cookie
-    res.clearCookie('refreshToken');
 
     res.json({
       success: true,
       message: '登出成功',
     });
   } catch (error) {
+    console.error('登出控制器错误:', error);
     res.status(400).json({
       success: false,
       message: error.message,

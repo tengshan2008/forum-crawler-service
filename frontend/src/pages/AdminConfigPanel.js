@@ -21,7 +21,7 @@ import {
   EditOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import axios from 'axios';
+import api from '../services/api';
 import './AdminConfigPanel.css';
 
 const AdminConfigPanel = () => {
@@ -38,7 +38,7 @@ const AdminConfigPanel = () => {
   const fetchConfig = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('/api/admin/config');
+      const response = await api.get('/admin/config');
       if (response.data.success) {
         setConfig(response.data.data);
         form.setFieldsValue(response.data.data);
@@ -53,7 +53,7 @@ const AdminConfigPanel = () => {
   const updateCrawlerConfig = async (values) => {
     try {
       setLoading(true);
-      const response = await axios.put('/api/admin/config/crawler', values);
+      const response = await api.put('/admin/config/crawler', values);
       if (response.data.success) {
         message.success('爬虫配置已更新');
         fetchConfig();
@@ -68,7 +68,7 @@ const AdminConfigPanel = () => {
   const updateStorageConfig = async (values) => {
     try {
       setLoading(true);
-      const response = await axios.put('/api/admin/config/storage', values);
+      const response = await api.put('/admin/config/storage', values);
       if (response.data.success) {
         message.success('存储配置已更新');
         fetchConfig();
@@ -83,8 +83,8 @@ const AdminConfigPanel = () => {
   const updateMonitoringConfig = async (values) => {
     try {
       setLoading(true);
-      const response = await axios.put(
-        '/api/admin/config/monitoring',
+      const response = await api.put(
+        '/admin/config/monitoring',
         values
       );
       if (response.data.success) {
@@ -101,7 +101,7 @@ const AdminConfigPanel = () => {
   const updateSystemConfig = async (values) => {
     try {
       setLoading(true);
-      const response = await axios.put('/api/admin/config/system', values);
+      const response = await api.put('/admin/config/system', values);
       if (response.data.success) {
         message.success('系统设置已更新');
         fetchConfig();
@@ -120,7 +120,7 @@ const AdminConfigPanel = () => {
         return;
       }
 
-      const response = await axios.post('/api/admin/config/proxies', newProxy);
+      const response = await api.post('/admin/config/proxies', newProxy);
       if (response.data.success) {
         message.success('代理已添加');
         setNewProxy({ url: '', description: '' });
@@ -134,7 +134,7 @@ const AdminConfigPanel = () => {
 
   const handleRemoveProxy = async (proxyUrl) => {
     try {
-      const response = await axios.delete(`/api/admin/config/proxies/${proxyUrl}`);
+      const response = await api.delete(`/admin/config/proxies/${proxyUrl}`);
       if (response.data.success) {
         message.success('代理已删除');
         fetchConfig();

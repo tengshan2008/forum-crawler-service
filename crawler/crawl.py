@@ -49,26 +49,32 @@ class ForumCrawler:
         """获取任务关联的用户ID"""
         try:
             if self.db is None:
+                print(f"⚠ 数据库连接失败，无法获取任务用户ID", file=sys.stderr, flush=True)
                 return
             
-            # 任务集合名称通常是 crawlertasks
+            # 任务集合名称通常是 crawlertasks（Mongoose将CrawlerTask模型转换为crawlertasks集合）
             tasks_collection = self.db['crawlertasks']
             task = tasks_collection.find_one({'_id': ObjectId(self.task_id)})
             
-            if task and 'userId' in task:
+            if not task:
+                print(f"⚠ 任务不存在于数据库中: {self.task_id}", file=sys.stderr, flush=True)
+            elif 'userId' in task and task['userId']:
                 self.user_id = task['userId']
                 print(f"✓ 获取到任务用户ID: {self.user_id}", flush=True)
             else:
+                print(f"⚠ 任务中userId字段缺失或为空。任务数据: {task}", file=sys.stderr, flush=True)
                 # 尝试查找任意一个管理员用户作为默认 fallback
                 users_collection = self.db['users']
                 admin = users_collection.find_one({'role': 'admin'})
                 if admin:
                     self.user_id = admin['_id']
-                    print(f"⚠ 未找到任务用户ID，使用管理员ID作为默认: {self.user_id}", flush=True)
+                    print(f"⚠ 使用管理员ID作为默认值: {self.user_id}", flush=True)
                 else:
                     print(f"⚠ 无法确定用户ID，保存数据可能会失败", file=sys.stderr, flush=True)
         except Exception as e:
             print(f"⚠ 获取任务用户信息失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
     
     def _calculate_content_hash(self, content):
         """计算内容的 MD5 哈希值用于去重

@@ -261,8 +261,25 @@ class SystemMonitoringService {
   static async generatePerformanceReport(timeRange = 'day') {
     const metrics = await this.getMetricsHistory(timeRange);
 
+    // 如果无可用数据，返回默认的空报告结构
     if (metrics.length === 0) {
-      return { success: false, message: '无可用数据' };
+      return {
+        success: true,
+        timeRange,
+        period: {
+          start: new Date(),
+          end: new Date(),
+        },
+        summary: {
+          avgCpuUsage: 0,
+          avgMemoryUsage: 0,
+          avgQueryTime: 0,
+          errorRate: 0,
+          totalRequests: 0,
+          totalErrors: 0,
+        },
+        metrics: [],
+      };
     }
 
     // 计算平均值
