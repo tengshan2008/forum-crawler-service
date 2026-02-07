@@ -8,7 +8,8 @@
     "dev": "nodemon src/index.js",
     "test": "jest",
     "lint": "eslint src/",
-    "migrate:tasks-userids": "node scripts/migrateTasksUserIds.js"
+    "migrate:tasks-userids": "node scripts/migrateTasksUserIds.js",
+    "create:admin": "node scripts/createAdmin.js"
   },
   "keywords": [
     "crawler",

@@ -62,15 +62,39 @@ class ForumCrawler:
                 self.user_id = task['userId']
                 print(f"✓ 获取到任务用户ID: {self.user_id}", flush=True)
             else:
-                print(f"⚠ 任务中userId字段缺失或为空。任务数据: {task}", file=sys.stderr, flush=True)
+                print(f"⚠ 任务中userId字段缺失或为空（旧数据）", file=sys.stderr, flush=True)
                 # 尝试查找任意一个管理员用户作为默认 fallback
                 users_collection = self.db['users']
                 admin = users_collection.find_one({'role': 'admin'})
                 if admin:
                     self.user_id = admin['_id']
                     print(f"⚠ 使用管理员ID作为默认值: {self.user_id}", flush=True)
+                    # 同时尝试更新任务，为其补充userId
+                    try:
+                        tasks_collection.update_one(
+                            {'_id': ObjectId(self.task_id)},
+                            {'$set': {'userId': self.user_id}}
+                        )
+                        print(f"✓ 已为任务添加userId字段: {self.user_id}", flush=True)
+                    except Exception as e:
+                        print(f"⚠ 为任务添加userId失败: {e}", file=sys.stderr, flush=True)
                 else:
-                    print(f"⚠ 无法确定用户ID，保存数据可能会失败", file=sys.stderr, flush=True)
+                    # 如果没有管理员，创建一个默认用户或使用系统用户
+                    print(f"⚠ 找不到管理员用户，尝试使用系统默认用户", file=sys.stderr, flush=True)
+                    # 生成一个 ObjectId 作为系统用户（用于保证爬虫能继续运行）
+                    from bson import ObjectId as BsonObjectId
+                    system_user_id = BsonObjectId()
+                    self.user_id = system_user_id
+                    print(f"⚠ 使用系统默认用户ID: {self.user_id}", flush=True)
+                    # 尝试为任务添加 userId
+                    try:
+                        tasks_collection.update_one(
+                            {'_id': ObjectId(self.task_id)},
+                            {'$set': {'userId': self.user_id}}
+                        )
+                        print(f"✓ 已为任务添加系统用户ID", flush=True)
+                    except Exception as e:
+                        print(f"⚠ 为任务添加userId失败: {e}", file=sys.stderr, flush=True)
         except Exception as e:
             print(f"⚠ 获取任务用户信息失败: {e}", file=sys.stderr, flush=True)
             import traceback

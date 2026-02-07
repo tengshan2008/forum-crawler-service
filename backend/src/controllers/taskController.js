@@ -127,10 +127,21 @@ exports.deleteTask = catchAsync(async (req, res) => {
 
 // Start task
 exports.startTask = catchAsync(async (req, res) => {
-  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
+  // 先查找任务，不带 userId 过滤（兼容旧任务）
+  let task = await Task.findById(req.params.id);
 
   if (!task) {
     throw new AppError('Task not found', 404);
+  }
+
+  // 检查权限或自动补充 userId
+  if (!task.userId) {
+    console.log(`[任务启动] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
+    task.userId = req.user.id;
+    await task.save();
+  } else if (task.userId.toString() !== req.user.id) {
+    // 用户不是任务的所有者
+    throw new AppError('You do not have permission to start this task', 403);
   }
 
   console.log(`[任务启动] 任务ID: ${task._id}, 用户ID: ${task.userId}`);
@@ -176,10 +187,19 @@ exports.startTask = catchAsync(async (req, res) => {
 
 // Pause task
 exports.pauseTask = catchAsync(async (req, res) => {
-  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
+  // 先查找任务，不带 userId 过滤（兼容旧任务）
+  let task = await Task.findById(req.params.id);
 
   if (!task) {
     throw new AppError('Task not found', 404);
+  }
+
+  // 检查权限或自动补充 userId
+  if (!task.userId) {
+    console.log(`[任务暂停] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
+    task.userId = req.user.id;
+  } else if (task.userId.toString() !== req.user.id) {
+    throw new AppError('You do not have permission to pause this task', 403);
   }
 
   task.status = 'paused';
@@ -194,10 +214,19 @@ exports.pauseTask = catchAsync(async (req, res) => {
 
 // Resume task
 exports.resumeTask = catchAsync(async (req, res) => {
-  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
+  // 先查找任务，不带 userId 过滤（兼容旧任务）
+  let task = await Task.findById(req.params.id);
 
   if (!task) {
     throw new AppError('Task not found', 404);
+  }
+
+  // 检查权限或自动补充 userId
+  if (!task.userId) {
+    console.log(`[任务恢复] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
+    task.userId = req.user.id;
+  } else if (task.userId.toString() !== req.user.id) {
+    throw new AppError('You do not have permission to resume this task', 403);
   }
 
   task.status = 'running';
