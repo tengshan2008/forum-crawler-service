@@ -1118,10 +1118,6 @@ class ForumCrawler:
                     # 如果现有记录没有contentLength，尝试从content字段计算
                     if existing_length is None and url_post.get('content'):
                         existing_length = len(url_post.get('content', ''))
-                        print(f"📏 从内容字段计算现有长度: {existing_length} 字符", flush=True)
-                    else:
-                        
-                    if existing_length is not None:
                         # 都有长度信息，进行比较
                         print(f"📏 内容长度对比（旧：{existing_length} → 新：{content_length}）", flush=True)
                         if content_length > existing_length:
