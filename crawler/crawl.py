@@ -34,6 +34,15 @@ logger = logging.getLogger(__name__)
 class ForumCrawler:
     """真实的论坛爬虫实现"""
     
+    # 置顶规则帖子的黑名单ID（跳过采集）
+    PINNED_POST_BLACKLIST = {
+        '5877',      # https://t66y.com/htm_data/0612/9/5877.html
+        '932276',    # https://t66y.com/htm_data/2010/20/932276.html
+        '131469',    # https://t66y.com/htm_data/0805/20/131469.html
+        '183193',    # https://t66y.com/htm_data/0810/20/183193.html
+        '46242',     # https://t66y.com/htm_data/0707/20/46242.html
+    }
+    
     def __init__(self, task_id, mongodb_uri):
         self.task_id = task_id
         self.mongodb_uri = mongodb_uri
@@ -184,6 +193,39 @@ class ForumCrawler:
             'sec-ch-ua-mobile': '?0',
             'sec-ch-ua-platform': '"Windows"'
         }
+    
+    def is_pinned_post(self, post_id):
+        """检查是否是置顶规则帖子（黑名单中的帖子）
+        
+        Args:
+            post_id: 帖子ID（tid）
+            
+        Returns:
+            bool: True 如果在黑名单中
+        """
+        return str(post_id) in self.PINNED_POST_BLACKLIST
+    
+    def add_to_blacklist(self, post_id):
+        """动态添加帖子到黑名单
+        
+        Args:
+            post_id: 帖子ID（tid）
+        """
+        self.PINNED_POST_BLACKLIST.add(str(post_id))
+        print(f"✓ 已将帖子 {post_id} 添加到黑名单", flush=True)
+    
+    def remove_from_blacklist(self, post_id):
+        """从黑名单中移除帖子
+        
+        Args:
+            post_id: 帖子ID（tid）
+        """
+        post_id_str = str(post_id)
+        if post_id_str in self.PINNED_POST_BLACKLIST:
+            self.PINNED_POST_BLACKLIST.remove(post_id_str)
+            print(f"✓ 已将帖子 {post_id} 从黑名单中移除", flush=True)
+        else:
+            print(f"⚠ 帖子 {post_id} 不在黑名单中", flush=True)
     
     def connect_db(self):
         """连接 MongoDB"""
@@ -493,6 +535,11 @@ class ForumCrawler:
                         # 提取tid以确保唯一性
                         tid = self.extract_tid_from_url(full_url)
                         if tid:
+                            # 检查是否在黑名单中（置顶规则帖子）
+                            if tid in self.PINNED_POST_BLACKLIST:
+                                print(f"  ⏭ 跳过置顶规则帖子: {full_url}", flush=True)
+                                continue
+                            
                             post_links.append(full_url)
                             print(f"  ✓ 从<h3>中提取帖子链接: {full_url}", flush=True)
             
@@ -515,6 +562,11 @@ class ForumCrawler:
                         # 检查是否已经有对应的htm_data版本
                         tid = self.extract_tid_from_url(full_url)
                         if tid:
+                            # 检查是否在黑名单中（置顶规则帖子）
+                            if tid in self.PINNED_POST_BLACKLIST:
+                                print(f"  ⏭ 跳过置顶规则帖子: {full_url}", flush=True)
+                                continue
+                            
                             # 检查是否已存在
                             already_exists = any(f'/{tid}.' in link for link in post_links)
                             if not already_exists:
@@ -528,6 +580,11 @@ class ForumCrawler:
                         # 直接 htm_data 格式链接
                         tid = self.extract_tid_from_url(full_url)
                         if tid:
+                            # 检查是否在黑名单中（置顶规则帖子）
+                            if tid in self.PINNED_POST_BLACKLIST:
+                                print(f"  ⏭ 跳过置顶规则帖子: {full_url}", flush=True)
+                                continue
+                            
                             # 避免重复
                             if full_url not in post_links:
                                 post_links.append(full_url)
