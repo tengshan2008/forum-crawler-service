@@ -1114,13 +1114,19 @@ class ForumCrawler:
                 # URL存在，进行内容长度判断
                 if content_length is not None:
                     existing_length = url_post.get('contentLength')
-                    print(f"📏 检测到现有内容长度: {existing_length} 字符", flush=True)
                     
+                    # 如果现有记录没有contentLength，尝试从content字段计算
+                    if existing_length is None and url_post.get('content'):
+                        existing_length = len(url_post.get('content', ''))
+                        print(f"📏 从内容字段计算现有长度: {existing_length} 字符", flush=True)
+                    else:
+                        
                     if existing_length is not None:
                         # 都有长度信息，进行比较
+                        print(f"📏 内容长度对比（旧：{existing_length} → 新：{content_length}）", flush=True)
                         if content_length > existing_length:
                             # 新内容更长，需要更新
-                            print(f"📏 内容长度更新（旧：{existing_length} → 新：{content_length}），准备覆盖更新", flush=True)
+                            print(f"📏 新内容更长，准备覆盖更新", flush=True)
                             return {
                                 'exists': False,
                                 'reason': None,
@@ -1129,7 +1135,7 @@ class ForumCrawler:
                             }
                         elif content_length == existing_length:
                             # 内容长度相同，判断为重复
-                            print(f"📏 内容长度相同（{content_length}），帖子未更新，快速跳过", flush=True)
+                            print(f"📏 内容长度相同，帖子未更新，快速跳过", flush=True)
                             return {
                                 'exists': True,
                                 'reason': 'unchanged',
@@ -1137,12 +1143,15 @@ class ForumCrawler:
                             }
                         else:
                             # 新内容更短，保留原来的
-                            print(f"📏 新内容更短（旧：{existing_length} → 新：{content_length}），保留原内容", flush=True)
+                            print(f"📏 新内容更短，保留原内容", flush=True)
                             return {
                                 'exists': True,
                                 'reason': 'shorter_content',
                                 'message': f'新内容更短（旧：{existing_length}字 → 新：{content_length}字），保留原内容'
                             }
+                    else:
+                        # 现有记录没有长度信息，可能是旧数据
+                        print(f"⚠ 现有记录无长度信息（旧数据），新内容长度：{content_length} 字符，将继续用内容哈希进行检查", flush=True)
                 
                 # 进行内容哈希检查
                 if content_hash:
