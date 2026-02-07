@@ -14,7 +14,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const readline = require('readline');
-require('dotenv').config(path.join(__dirname, '../../.env'));
+require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 // 导入 User 模型
 const User = require('../src/models/User');
