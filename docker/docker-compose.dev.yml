@@ -54,6 +54,7 @@ services:
       - "5000:5000"
     volumes:
       - public_images:/app/public/images
+      - ../backend/scripts:/app/backend/scripts
       - ../backend/src:/app/backend/src
       - ../backend/package*.json:/app/backend/
       - ../crawler:/app/crawler
