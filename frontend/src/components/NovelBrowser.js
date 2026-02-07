@@ -21,7 +21,9 @@ import {
   HeartOutlined,
   HeartFilled,
   BookOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
+import { Modal } from 'antd';
 import dayjs from 'dayjs';
 import { browseApi } from '../services/api';
 import NovelReader from './NovelReader';
@@ -208,6 +210,28 @@ const NovelBrowser = () => {
     }
   };
 
+  const handleDelete = (novel) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除小说《${novel.title}》吗？此操作不可撤销。`,
+      okText: '确认删除',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在删除小说...', key: 'delete' });
+          await browseApi.deleteNovel(novel._id);
+          message.success({ content: '小说已删除', key: 'delete' });
+          // 刷新列表
+          fetchNovels(pagination.current, pagination.pageSize);
+        } catch (error) {
+          console.error('删除小说失败:', error);
+          message.error({ content: '删除小说失败', key: 'delete' });
+        }
+      },
+    });
+  };
+
   if (loading && novels.length === 0) {
     return (
       <div className='novel-browser-loading'>
@@ -390,6 +414,15 @@ const NovelBrowser = () => {
                             size='small'
                             icon={<ShareAltOutlined />}
                             onClick={() => handleShare(novel)}
+                          />
+                        </Tooltip>
+                        <Tooltip title='删除'>
+                          <Button
+                            type='text'
+                            size='small'
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleDelete(novel)}
                           />
                         </Tooltip>
                       </Space>

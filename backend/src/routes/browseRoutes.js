@@ -48,6 +48,28 @@ router.post('/novels/search', browseController.searchNovels);
  */
 router.get('/novels/:id', browseController.getNovelContent);
 
+/**
+ * DELETE /api/browse/novels/:id
+ * 删除小说（整个 Post）
+ */
+router.delete('/novels/:id', browseController.deleteNovel);
+
+// ============ 图片删除路由 ============
+
+/**
+ * DELETE /api/browse/posts/:id/images
+ * 从 Post 中删除单个图片
+ * 请求体: imageUrl
+ */
+router.delete('/posts/:id/images', browseController.deleteImage);
+
+/**
+ * DELETE /api/browse/posts/:id/images/batch
+ * 从 Post 中批量删除图片
+ * 请求体: imageUrls (数组)
+ */
+router.delete('/posts/:id/images/batch', browseController.deleteImages);
+
 // ============ 收藏夹路由 ============
 
 /**

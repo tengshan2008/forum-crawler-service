@@ -712,3 +712,115 @@ exports.getStats = catchAsync(async (req, res) => {
   });
 });
 
+/**
+ * 删除小说（整个 Post）
+ */
+exports.deleteNovel = catchAsync(async (req, res, next) => {
+  const { id } = req.params;
+
+  const post = await Post.findByIdAndDelete(id);
+
+  if (!post) {
+    return next(new AppError('小说不存在', 404));
+  }
+
+  // 清除缓存，因为文档数量已变化
+  countCache.clear();
+
+  res.status(200).json({
+    success: true,
+    message: '小说已删除',
+    data: post,
+  });
+});
+
+/**
+ * 删除图片（从 Post 中移除单个图片）
+ */
+exports.deleteImage = catchAsync(async (req, res, next) => {
+  const { id } = req.params; // Post ID
+  const { imageUrl } = req.body;
+
+  if (!imageUrl) {
+    return next(new AppError('图片URL不能为空', 400));
+  }
+
+  const post = await Post.findById(id);
+
+  if (!post) {
+    return next(new AppError('内容不存在', 404));
+  }
+
+  // 检查是否有该图片
+  const mediaIndex = post.media.findIndex((img) => img.url === imageUrl);
+
+  if (mediaIndex === -1) {
+    return next(new AppError('图片不存在', 404));
+  }
+
+  // 删除该图片
+  post.media.splice(mediaIndex, 1);
+
+  // 如果删除后没有图片和内容，则删除整个 Post
+  if (post.media.length === 0 && !post.content) {
+    await Post.findByIdAndDelete(id);
+    countCache.clear();
+    return res.status(200).json({
+      success: true,
+      message: '图片已删除，由于内容为空已删除整个 Post',
+      data: null,
+    });
+  }
+
+  // 保存更新
+  const updatedPost = await post.save();
+
+  res.status(200).json({
+    success: true,
+    message: '图片已删除',
+    data: updatedPost,
+  });
+});
+
+/**
+ * 批量删除图片（从 Post 中删除多个图片）
+ */
+exports.deleteImages = catchAsync(async (req, res, next) => {
+  const { id } = req.params; // Post ID
+  const { imageUrls } = req.body;
+
+  if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
+    return next(new AppError('图片URL列表不能为空', 400));
+  }
+
+  const post = await Post.findById(id);
+
+  if (!post) {
+    return next(new AppError('内容不存在', 404));
+  }
+
+  // 过滤出存在的图片并删除
+  const originalCount = post.media.length;
+  post.media = post.media.filter((img) => !imageUrls.includes(img.url));
+
+  // 如果删除后没有图片和内容，则删除整个 Post
+  if (post.media.length === 0 && !post.content) {
+    await Post.findByIdAndDelete(id);
+    countCache.clear();
+    return res.status(200).json({
+      success: true,
+      message: `已删除 ${originalCount - post.media.length} 张图片，由于内容为空已删除整个 Post`,
+      data: null,
+    });
+  }
+
+  // 保存更新
+  const updatedPost = await post.save();
+
+  res.status(200).json({
+    success: true,
+    message: `已删除 ${originalCount - post.media.length} 张图片`,
+    data: updatedPost,
+  });
+});
+

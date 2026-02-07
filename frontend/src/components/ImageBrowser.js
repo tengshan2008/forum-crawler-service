@@ -24,6 +24,7 @@ import {
   LeftOutlined,
   RightOutlined,
   EyeOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons';
 import Masonry from 'react-masonry-css';
 import dayjs from 'dayjs';
@@ -182,6 +183,56 @@ const ImageBrowser = () => {
       newFavorites.add(imageId);
     }
     setFavorites(newFavorites);
+  };
+
+  const handleDeleteImage = (postId, imageUrl) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除这张图片吗？此操作不可撤销。',
+      okText: '确认删除',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在删除图片...', key: 'deleteImage' });
+          await browseApi.deleteImage(postId, imageUrl);
+          message.success({ content: '图片已删除', key: 'deleteImage' });
+          // 关闭预览
+          setPreviewImage(null);
+          // 刷新图片分组列表
+          fetchImageGroups(pagination.current, pagination.pageSize);
+        } catch (error) {
+          console.error('删除图片失败:', error);
+          message.error({ content: '删除图片失败', key: 'deleteImage' });
+        }
+      },
+    });
+  };
+
+  const handleDeletePost = (postId, title) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: `确定要删除这个网页及其所有图片吗？《${title}》此操作不可撤销。`,
+      okText: '确认删除',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          message.loading({ content: '正在删除网页...', key: 'deletePost' });
+          // 删除整个 Post（图片组）
+          await browseApi.deleteNovel(postId);
+          message.success({ content: '网页已删除', key: 'deletePost' });
+          // 关闭预览
+          setSelectedGroup(null);
+          setPreviewImage(null);
+          // 刷新图片分组列表
+          fetchImageGroups(pagination.current, pagination.pageSize);
+        } catch (error) {
+          console.error('删除网页失败:', error);
+          message.error({ content: '删除网页失败', key: 'deletePost' });
+        }
+      },
+    });
   };
 
   // 瀑布流断点配置
@@ -355,9 +406,27 @@ const ImageBrowser = () => {
                   </div>
 
                   <div className='group-actions'>
-                    <Button type='primary' icon={<EyeOutlined />}>
-                      查看全部 ({group.totalImages} 张)
-                    </Button>
+                    <Space style={{ width: '100%', gap: '8px' }}>
+                      <Button 
+                        type='primary' 
+                        icon={<EyeOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleViewAllImages(group);
+                        }}
+                        style={{ flex: 1 }}
+                      >
+                        查看全部 ({group.totalImages} 张)
+                      </Button>
+                      <Button
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeletePost(group._id, group.title);
+                        }}
+                      />
+                    </Space>
                   </div>
                 </Card>
               ))}
@@ -382,13 +451,22 @@ const ImageBrowser = () => {
       {/* 瀑布流图片展示 */}
       {selectedGroup && (
         <div className='masonry-container'>
-          <div className='selected-group-header'>
-            <Title level={4}>{selectedGroup.title}</Title>
-            <Text type='secondary'>
-              作者: {selectedGroup.author || '未知'} |
-              共 {selectedGroup.totalImages} 张图片 |
-              {dayjs(selectedGroup.createdAt).format('YYYY-MM-DD HH:mm')}
-            </Text>
+          <div className='selected-group-header' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+            <div style={{ flex: 1 }}>
+              <Title level={4}>{selectedGroup.title}</Title>
+              <Text type='secondary'>
+                作者: {selectedGroup.author || '未知'} |
+                共 {selectedGroup.totalImages} 张图片 |
+                {dayjs(selectedGroup.createdAt).format('YYYY-MM-DD HH:mm')}
+              </Text>
+            </div>
+            <Button
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeletePost(selectedGroup._id, selectedGroup.title)}
+            >
+              删除整个网页
+            </Button>
           </div>
 
           <Masonry
@@ -443,6 +521,13 @@ const ImageBrowser = () => {
                       size='small'
                       icon={<ShareAltOutlined />}
                       onClick={() => handleShare(image.url)}
+                    />
+                    <Button
+                      type='text'
+                      size='small'
+                      danger
+                      icon={<DeleteOutlined />}
+                      onClick={() => handleDeleteImage(selectedGroup._id, image.url)}
                     />
                   </Space>
                 </Card>
@@ -542,8 +627,20 @@ const ImageBrowser = () => {
               </span>
             </div>
           )}
-          <div style={{ fontSize: '12px', color: '#999' }}>
+          <div style={{ fontSize: '12px', color: '#999', display: 'flex', gap: '20px', alignItems: 'center' }}>
             <span>⬅️ / ➡️ 切换 | ESC 关闭</span>
+            {selectedGroup && previewImage && (
+              <Button
+                type='text'
+                size='small'
+                danger
+                icon={<DeleteOutlined />}
+                style={{ color: '#ff4d4f' }}
+                onClick={() => handleDeleteImage(selectedGroup._id, selectedGroup.allImages[previewIndex].url)}
+              >
+                删除图片
+              </Button>
+            )}
           </div>
         </div>
 

@@ -105,6 +105,11 @@ export const browseApi = {
   getNovels: (params) => api.get('/browse/novels', { params }),
   searchNovels: (data) => api.post('/browse/novels/search', data),
   getNovelContent: (id) => api.get(`/browse/novels/${id}`),
+  deleteNovel: (id) => api.delete(`/browse/novels/${id}`),
+  
+  // Image Delete API
+  deleteImage: (postId, imageUrl) => api.delete(`/browse/posts/${postId}/images`, { data: { imageUrl } }),
+  deleteImages: (postId, imageUrls) => api.delete(`/browse/posts/${postId}/images/batch`, { data: { imageUrls } }),
   
   // Collection API
   createCollection: (data) => api.post('/browse/collections', data),

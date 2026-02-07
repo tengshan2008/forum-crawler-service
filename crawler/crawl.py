@@ -1114,6 +1114,7 @@ class ForumCrawler:
                 # URL存在，进行内容长度判断
                 if content_length is not None:
                     existing_length = url_post.get('contentLength')
+                    print(f"📏 检测到现有内容长度: {existing_length} 字符", flush=True)
                     
                     if existing_length is not None:
                         # 都有长度信息，进行比较
