@@ -5,12 +5,15 @@ const { addCrawlerTask, getQueueStats } = require('../services/crawlerQueue');
 
 // Get all tasks
 exports.getAllTasks = catchAsync(async (req, res) => {
-  const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
+  const { status, crawlType, page = 1, limit = 10, sort = '-createdAt' } = req.query;
   
   // 管理员可以看到所有任务，普通用户只能看到自己的任务
   const filter = req.user.role === 'admin' ? {} : { userId: req.user.userId };
   if (status) {
     filter.status = status;
+  }
+  if (crawlType) {
+    filter.crawlType = crawlType;
   }
 
   const skip = (page - 1) * limit;

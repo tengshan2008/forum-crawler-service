@@ -12,6 +12,7 @@ const TaskList = () => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [form] = Form.useForm();
+  const [crawlTypeFilter, setCrawlTypeFilter] = useState(null);
   const navigate = useNavigate();
 
   const fetchTasks = useCallback(async () => {
@@ -20,6 +21,7 @@ const TaskList = () => {
       const response = await taskApi.getAll({
         page: pagination.current,
         limit: pagination.pageSize,
+        crawlType: crawlTypeFilter,
       });
       setTasks(response.data.data);
       if (response.data.pagination.total !== pagination.total) {
@@ -34,7 +36,7 @@ const TaskList = () => {
     } finally {
       setLoading(false);
     }
-  }, [pagination]);
+  }, [pagination, crawlTypeFilter]);
 
   useEffect(() => {
     fetchTasks();
@@ -198,6 +200,18 @@ const TaskList = () => {
       key: 'taskType',
     },
     {
+      title: '采集类型',
+      dataIndex: 'crawlType',
+      key: 'crawlType',
+      render: (crawlType) => {
+        const typeMap = {
+          'single': '单帖采集',
+          'batch': '批量采集'
+        };
+        return typeMap[crawlType] || crawlType;
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -283,6 +297,19 @@ const TaskList = () => {
           <Button icon={<PlayCircleOutlined rotate={90} />} onClick={fetchTasks}>
             刷新
           </Button>
+          <Select
+            placeholder="采集类型"
+            style={{ width: 150 }}
+            allowClear
+            value={crawlTypeFilter}
+            onChange={(value) => {
+              setCrawlTypeFilter(value);
+              setPagination({ current: 1, pageSize: 10, total: 0 });
+            }}
+          >
+            <Select.Option value="single">单帖采集</Select.Option>
+            <Select.Option value="batch">批量采集</Select.Option>
+          </Select>
         </Space>
       </div>
 
