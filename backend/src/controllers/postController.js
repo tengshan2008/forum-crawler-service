@@ -6,7 +6,8 @@ const catchAsync = require('../utils/catchAsync');
 exports.getAllPosts = catchAsync(async (req, res) => {
   const { taskId, postType, status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
-  const filter = { $or: [{ userId: req.user.userId }, { visibility: 'public' }] };
+  // 管理员可以看到所有帖子，普通用户只能看到自己的和公开的帖子
+  const filter = req.user.role === 'admin' ? {} : { $or: [{ userId: req.user.userId }, { visibility: 'public' }] };
   if (taskId) filter.taskId = taskId;
   if (postType) filter.postType = postType;
   if (status) filter.status = status;
@@ -35,10 +36,12 @@ exports.getAllPosts = catchAsync(async (req, res) => {
 
 // Get single post by ID
 exports.getPostById = catchAsync(async (req, res) => {
-  const post = await Post.findOne({
-    _id: req.params.id,
-    $or: [{ userId: req.user.userId }, { visibility: 'public' }]
-  })
+  // 管理员可以查看任何帖子，普通用户只能查看自己的和公开的帖子
+  const query = { _id: req.params.id };
+  if (req.user.role !== 'admin') {
+    query.$or = [{ userId: req.user.userId }, { visibility: 'public' }];
+  }
+  const post = await Post.findOne(query)
     .populate('taskId', 'name');
 
   if (!post) {
@@ -57,7 +60,12 @@ exports.getPostsByTaskId = catchAsync(async (req, res) => {
   const { taskId } = req.params;
 
   // 验证用户是否有权限访问该任务
-  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.userId });
+  // 管理员可以访问任何任务，普通用户只能访问自己的任务
+  const taskQuery = { _id: taskId };
+  if (req.user.role !== 'admin') {
+    taskQuery.userId = req.user.userId;
+  }
+  const task = await require('../models/Task').findOne(taskQuery);
   if (!task) {
     throw new AppError('Task not found', 404);
   }
@@ -145,7 +153,12 @@ exports.getPostStats = catchAsync(async (req, res) => {
   const { taskId } = req.params;
 
   // 验证用户是否有权限访问该任务
-  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.userId });
+  // 管理员可以访问任何任务，普通用户只能访问自己的任务
+  const taskQuery = { _id: taskId };
+  if (req.user.role !== 'admin') {
+    taskQuery.userId = req.user.userId;
+  }
+  const task = await require('../models/Task').findOne(taskQuery);
   if (!task) {
     throw new AppError('Task not found', 404);
   }

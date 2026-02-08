@@ -7,7 +7,8 @@ const { addCrawlerTask, getQueueStats } = require('../services/crawlerQueue');
 exports.getAllTasks = catchAsync(async (req, res) => {
   const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
   
-  const filter = { userId: req.user.userId };
+  // 管理员可以看到所有任务，普通用户只能看到自己的任务
+  const filter = req.user.role === 'admin' ? {} : { userId: req.user.userId };
   if (status) {
     filter.status = status;
   }
@@ -35,7 +36,12 @@ exports.getAllTasks = catchAsync(async (req, res) => {
 
 // Get single task by ID
 exports.getTaskById = catchAsync(async (req, res) => {
-  const task = await Task.findOne({ _id: req.params.id, userId: req.user.userId });
+  // 管理员可以查看任何任务，普通用户只能查看自己的任务
+  const query = { _id: req.params.id };
+  if (req.user.role !== 'admin') {
+    query.userId = req.user.userId;
+  }
+  const task = await Task.findOne(query);
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -90,8 +96,13 @@ exports.createTask = catchAsync(async (req, res) => {
 
 // Update task
 exports.updateTask = catchAsync(async (req, res) => {
+  // 管理员可以更新任何任务，普通用户只能更新自己的任务
+  const query = { _id: req.params.id };
+  if (req.user.role !== 'admin') {
+    query.userId = req.user.userId;
+  }
   const task = await Task.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user.userId },
+    query,
     req.body,
     {
       new: true,
@@ -112,7 +123,12 @@ exports.updateTask = catchAsync(async (req, res) => {
 
 // Delete task
 exports.deleteTask = catchAsync(async (req, res) => {
-  const task = await Task.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+  // 管理员可以删除任何任务，普通用户只能删除自己的任务
+  const query = { _id: req.params.id };
+  if (req.user.role !== 'admin') {
+    query.userId = req.user.userId;
+  }
+  const task = await Task.findOneAndDelete(query);
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -139,7 +155,7 @@ exports.startTask = catchAsync(async (req, res) => {
     console.log(`[任务启动] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
     task.userId = req.user.userId;
     await task.save();
-  } else if (task.userId.toString() !== req.user.userId) {
+  } else if (task.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
     // 用户不是任务的所有者
     throw new AppError('You do not have permission to start this task', 403);
   }
@@ -194,11 +210,11 @@ exports.pauseTask = catchAsync(async (req, res) => {
     throw new AppError('Task not found', 404);
   }
 
-  // 检查权限或自动补充 userId
+  // 检查权限或自动补充 userId（管理员可以暂停任何任务）
   if (!task.userId) {
     console.log(`[任务暂停] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
     task.userId = req.user.userId;
-  } else if (task.userId.toString() !== req.user.userId) {
+  } else if (task.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
     throw new AppError('You do not have permission to pause this task', 403);
   }
 
@@ -225,7 +241,7 @@ exports.resumeTask = catchAsync(async (req, res) => {
   if (!task.userId) {
     console.log(`[任务恢复] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
     task.userId = req.user.userId;
-  } else if (task.userId.toString() !== req.user.userId) {
+  } else if (task.userId.toString() !== req.user.userId && req.user.role !== 'admin') {
     throw new AppError('You do not have permission to resume this task', 403);
   }
 
