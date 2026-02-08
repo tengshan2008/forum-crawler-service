@@ -7,7 +7,7 @@ const { addCrawlerTask, getQueueStats } = require('../services/crawlerQueue');
 exports.getAllTasks = catchAsync(async (req, res) => {
   const { status, page = 1, limit = 10, sort = '-createdAt' } = req.query;
   
-  const filter = { userId: req.user.id };
+  const filter = { userId: req.user.userId };
   if (status) {
     filter.status = status;
   }
@@ -35,7 +35,7 @@ exports.getAllTasks = catchAsync(async (req, res) => {
 
 // Get single task by ID
 exports.getTaskById = catchAsync(async (req, res) => {
-  const task = await Task.findOne({ _id: req.params.id, userId: req.user.id });
+  const task = await Task.findOne({ _id: req.params.id, userId: req.user.userId });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -76,7 +76,7 @@ exports.createTask = catchAsync(async (req, res) => {
     config,
     schedule,
     status: 'pending',
-    userId: req.user.id,
+    userId: req.user.userId,
   });
 
   console.log(`[任务创建] 任务ID: ${task._id}, 用户ID: ${task.userId}`);
@@ -91,7 +91,7 @@ exports.createTask = catchAsync(async (req, res) => {
 // Update task
 exports.updateTask = catchAsync(async (req, res) => {
   const task = await Task.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user.id },
+    { _id: req.params.id, userId: req.user.userId },
     req.body,
     {
       new: true,
@@ -112,7 +112,7 @@ exports.updateTask = catchAsync(async (req, res) => {
 
 // Delete task
 exports.deleteTask = catchAsync(async (req, res) => {
-  const task = await Task.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+  const task = await Task.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
 
   if (!task) {
     throw new AppError('Task not found', 404);
@@ -137,9 +137,9 @@ exports.startTask = catchAsync(async (req, res) => {
   // 检查权限或自动补充 userId
   if (!task.userId) {
     console.log(`[任务启动] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
-    task.userId = req.user.id;
+    task.userId = req.user.userId;
     await task.save();
-  } else if (task.userId.toString() !== req.user.id) {
+  } else if (task.userId.toString() !== req.user.userId) {
     // 用户不是任务的所有者
     throw new AppError('You do not have permission to start this task', 403);
   }
@@ -197,8 +197,8 @@ exports.pauseTask = catchAsync(async (req, res) => {
   // 检查权限或自动补充 userId
   if (!task.userId) {
     console.log(`[任务暂停] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
-    task.userId = req.user.id;
-  } else if (task.userId.toString() !== req.user.id) {
+    task.userId = req.user.userId;
+  } else if (task.userId.toString() !== req.user.userId) {
     throw new AppError('You do not have permission to pause this task', 403);
   }
 
@@ -224,8 +224,8 @@ exports.resumeTask = catchAsync(async (req, res) => {
   // 检查权限或自动补充 userId
   if (!task.userId) {
     console.log(`[任务恢复] 检测到任务 ${task._id} 缺少 userId，自动关联当前用户`);
-    task.userId = req.user.id;
-  } else if (task.userId.toString() !== req.user.id) {
+    task.userId = req.user.userId;
+  } else if (task.userId.toString() !== req.user.userId) {
     throw new AppError('You do not have permission to resume this task', 403);
   }
 

@@ -6,7 +6,7 @@ const catchAsync = require('../utils/catchAsync');
 exports.getAllPosts = catchAsync(async (req, res) => {
   const { taskId, postType, status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
 
-  const filter = { $or: [{ userId: req.user.id }, { visibility: 'public' }] };
+  const filter = { $or: [{ userId: req.user.userId }, { visibility: 'public' }] };
   if (taskId) filter.taskId = taskId;
   if (postType) filter.postType = postType;
   if (status) filter.status = status;
@@ -37,7 +37,7 @@ exports.getAllPosts = catchAsync(async (req, res) => {
 exports.getPostById = catchAsync(async (req, res) => {
   const post = await Post.findOne({
     _id: req.params.id,
-    $or: [{ userId: req.user.id }, { visibility: 'public' }]
+    $or: [{ userId: req.user.userId }, { visibility: 'public' }]
   })
     .populate('taskId', 'name');
 
@@ -57,7 +57,7 @@ exports.getPostsByTaskId = catchAsync(async (req, res) => {
   const { taskId } = req.params;
 
   // 验证用户是否有权限访问该任务
-  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.id });
+  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.userId });
   if (!task) {
     throw new AppError('Task not found', 404);
   }
@@ -107,7 +107,7 @@ exports.createPost = catchAsync(async (req, res) => {
 // Update post
 exports.updatePost = catchAsync(async (req, res) => {
   const post = await Post.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user.id },
+    { _id: req.params.id, userId: req.user.userId },
     req.body,
     {
       new: true,
@@ -127,7 +127,7 @@ exports.updatePost = catchAsync(async (req, res) => {
 
 // Delete post
 exports.deletePost = catchAsync(async (req, res) => {
-  const post = await Post.findOneAndDelete({ _id: req.params.id, userId: req.user.id });
+  const post = await Post.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
 
   if (!post) {
     throw new AppError('Post not found', 404);
@@ -145,7 +145,7 @@ exports.getPostStats = catchAsync(async (req, res) => {
   const { taskId } = req.params;
 
   // 验证用户是否有权限访问该任务
-  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.id });
+  const task = await require('../models/Task').findOne({ _id: taskId, userId: req.user.userId });
   if (!task) {
     throw new AppError('Task not found', 404);
   }

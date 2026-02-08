@@ -31,7 +31,7 @@ class AdminController {
     try {
       const crawlerConfig = req.body;
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
@@ -69,7 +69,7 @@ class AdminController {
       }
 
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
@@ -101,7 +101,7 @@ class AdminController {
       const { proxyUrl } = req.params;
 
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
@@ -128,7 +128,7 @@ class AdminController {
     try {
       const storageConfig = req.body;
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
@@ -177,7 +177,7 @@ class AdminController {
     try {
       const monitoringConfig = req.body;
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
@@ -207,7 +207,7 @@ class AdminController {
     try {
       const systemConfig = req.body;
       const operator = {
-        id: req.user?.id,
+        id: req.user?.userId,
         username: req.user?.username,
         ipAddress: req.ip,
       };
