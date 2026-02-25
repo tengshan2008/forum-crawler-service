@@ -63,7 +63,7 @@ const taskSchema = new mongoose.Schema(
         url: String,
         reason: {
           type: String,
-          enum: ['duplicate', 'update_check_failed', 'parse_failed', 'network_error', 'other'],
+          enum: ['duplicate', 'same_url', 'content_duplicate', 'unchanged', 'shorter_content', 'update_check_failed', 'parse_failed', 'network_error', 'other'],
           default: 'other',
         },
         message: String,

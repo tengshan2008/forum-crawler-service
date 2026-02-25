@@ -30,6 +30,10 @@ const PostPreview = () => {
   const getReasonColor = (reason) => {
     const colors = {
       'duplicate': 'orange',
+      'same_url': 'orange',
+      'content_duplicate': 'gold',
+      'unchanged': 'green',
+      'shorter_content': 'cyan',
       'network_error': 'red',
       'parse_failed': 'volcano',
       'update_check_failed': 'gold',
@@ -41,7 +45,11 @@ const PostPreview = () => {
   // 获取跳过原因的描述
   const getReasonLabel = (reason) => {
     const labels = {
-      'duplicate': '重复帖子',
+      'duplicate': '完全重复',
+      'same_url': '相同URL',
+      'content_duplicate': '内容重复',
+      'unchanged': '未更新',
+      'shorter_content': '内容变短',
       'network_error': '网络错误',
       'parse_failed': '解析失败',
       'update_check_failed': '更新检查失败',
