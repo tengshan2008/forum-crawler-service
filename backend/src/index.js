@@ -12,6 +12,7 @@ const { crawlerQueue } = require('./services/crawlerQueue');
 const { executeCrawler } = require('./services/crawlerExecutor');
 const Task = require('./models/Task');
 const schedulerService = require('./services/schedulerService');
+const SystemMonitoringService = require('./services/systemMonitoringService');
 
 const app = express();
 
@@ -69,6 +70,11 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+
+    // 启动系统监控服务
+    console.log('⊙ 启动系统监控服务...');
+    SystemMonitoringService.startMonitoringTask(60000); // 每60秒收集一次指标
+    consola.success('系统监控服务已启动');
 
     // 设置爬虫队列处理
     console.log('⊙ 初始化爬虫队列...');
