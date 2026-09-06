@@ -13,7 +13,10 @@ const makeRes = () => {
   return res;
 };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  process.env.JWT_SECRET = 'test_jwt_secret';
+});
 
 describe('authMiddleware JWT 认证', () => {
   it('缺少 Authorization 头时返回 401', () => {
@@ -82,7 +85,7 @@ describe('authMiddleware JWT 认证', () => {
     const next = jest.fn();
     authMiddleware(req, makeRes(), next);
 
-    expect(jwt.verify).toHaveBeenCalledWith('good-token', process.env.JWT_SECRET || 'secret_key');
+    expect(jwt.verify).toHaveBeenCalledWith('good-token', 'test_jwt_secret');
     expect(req.user).toEqual(decoded);
     expect(next).toHaveBeenCalled();
   });

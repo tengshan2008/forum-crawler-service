@@ -1,5 +1,31 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.1.1 - P0 安全止血与 CI（优化建议路线图）
+**发布日期**: 2026-09-06
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`
+
+### S1 密钥 fail-fast
+- 新增 `config.validateEnv()`：`JWT_SECRET` / `JWT_REFRESH_SECRET` 缺失或仍为示例/弱默认值时启动即退出
+- 移除全部 6 处硬编码密钥 fallback（authMiddleware / authService×3 / authController / config）
+- `.env.example` 增加 `JWT_REFRESH_SECRET` 与强随机值说明；docker-compose 改为强制注入（`${JWT_SECRET:?}` 语法，缺失时 compose 报错）
+- `docs/deployment.md` 同步部署注意事项
+
+### S2 CORS 白名单
+- `cors.js` 重写：仅反射白名单 Origin 并携带凭据；未配置 `CORS_ORIGIN` 时默认拒绝跨域；`*` 仅限无凭据场景；预检请求未命中白名单返回 403
+
+### S3 认证端点限流
+- 新增依赖 `express-rate-limit`（v8）与 `backend/src/middlewares/rateLimiter.js`：register / login / refresh 每 IP 15 分钟最多 20 次，429 返回统一响应格式
+
+### D1 CI
+- 新增 `.github/workflows/ci.yml`：backend Jest + crawler Pytest 双 job（push/PR 触发）；README 增加 CI 徽章
+
+### 测试
+- 后端 Jest 51 → 65：新增 cors（7）、rateLimiter（3）、config validateEnv（4）用例；authMiddleware/authService 测试改为显式注入密钥（配合 fallback 移除）
+- 爬虫 Pytest 52/52 回归通过
+
+---
+
 ## 版本 2.1.0 - 架构整改（P0 止血 / P1 测试基建 / P2 轻度分层）
 **发布日期**: 2026-09-06
 **状态**: ✅ 已完成

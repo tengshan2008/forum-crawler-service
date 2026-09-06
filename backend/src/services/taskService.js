@@ -191,6 +191,74 @@ async function resumeTask(taskId, user) {
   return task;
 }
 
+// ===== 系统内部状态流转（队列 worker / 调度器专用）=====
+// 与用户侧 start/pause/resume 不同：由系统触发，不做归属检查，
+// 保证任务状态规则全系统只有 taskService 一份（B1/D3 收敛）。
+
+// errorLog 上限，防止长期运行任务的失败日志无限增长（B5）
+const ERROR_LOG_LIMIT = 50;
+
+function appendErrorLog(task, entry) {
+  task.errorLog.push(entry);
+  if (task.errorLog.length > ERROR_LOG_LIMIT) {
+    task.errorLog.splice(0, task.errorLog.length - ERROR_LOG_LIMIT);
+  }
+}
+
+// 队列开始消费：置运行中并记录本次爬取时间
+async function markRunning(taskId) {
+  const task = await Task.findById(taskId);
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
+  task.status = 'running';
+  task.progress = 5;
+  task.lastCrawlTime = new Date();
+  await task.save();
+  return task;
+}
+
+// 队列执行成功：置完成并落统计；任务名为空时采用爬虫返回的标题（保持原 worker 行为）
+async function markCompleted(taskId, result = {}) {
+  const task = await Task.findById(taskId);
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
+  if ((!task.name || task.name === '') && result.title) {
+    task.name = result.title;
+  }
+  task.status = 'completed';
+  task.progress = 100;
+  task.crawledItems = result.crawled_posts || 1;
+  task.totalItems = result.total_posts || 1;
+  task.endTime = new Date();
+  await task.save();
+  return task;
+}
+
+// 执行失败：追加（而非覆盖）errorLog
+async function markFailed(taskId, error) {
+  const task = await Task.findById(taskId);
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
+  task.status = 'failed';
+  appendErrorLog(task, { timestamp: new Date(), message: error.message });
+  await task.save();
+  return task;
+}
+
+// 定时调度触发：重置进度与计数，记录本轮调度时间
+async function markScheduledRun(task, now) {
+  task.status = 'running';
+  task.schedule.lastRunTime = now;
+  task.progress = 0;
+  task.crawledItems = 0;
+  task.failedItems = 0;
+  await task.save();
+  return task;
+}
+
 module.exports = {
   buildVisibilityFilter,
   listTasks,
@@ -201,4 +269,8 @@ module.exports = {
   startTask,
   pauseTask,
   resumeTask,
+  markRunning,
+  markCompleted,
+  markFailed,
+  markScheduledRun,
 };

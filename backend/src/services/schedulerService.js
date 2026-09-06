@@ -65,35 +65,23 @@ class SchedulerService {
     
     if (shouldRun) {
       console.log(`🚀 准备执行定时任务: ${task.name || task.forumUrl}`);
-      
-      // 更新任务状态为运行中
-      task.status = 'running';
-      task.schedule.lastRunTime = now;
-      task.progress = 0;
-      task.crawledItems = 0;
-      task.failedItems = 0;
-      await task.save();
-      
-      // 异步启动爬虫任务，不阻塞主进程
+
+      // 状态流转统一委托 taskService（D3 收敛：重置计数、记录本轮调度时间）
+      await taskService.markScheduledRun(task, now);
+
+      // 异步启动爬虫任务，不阻塞主进程（crawlType 需显式传递，否则批量任务会按单帖执行）
       try {
         await addCrawlerTask(
           task._id.toString(),
           task.crawlType === 'batch' ? task.sectionUrl : task.forumUrl,
           task.taskType,
-          task.config
+          task.config,
+          task.crawlType
         );
         console.log(`✅ 定时任务已加入队列: ${task._id}`);
       } catch (error) {
         console.error(`❌ 启动定时任务失败:`, error);
-        
-        // 更新任务状态为失败
-        task.status = 'failed';
-        task.errorLog.push({
-          timestamp: new Date(),
-          message: `启动定时任务失败: ${error.message}`,
-          url: task.forumUrl
-        });
-        await task.save();
+        await taskService.markFailed(task._id.toString(), error);
       }
     } else {
       // 计算下次执行时间

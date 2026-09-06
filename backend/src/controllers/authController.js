@@ -110,7 +110,7 @@ exports.logout = async (req, res) => {
         const jwt = require('jsonwebtoken');
         const decoded = jwt.verify(
           token,
-          process.env.JWT_SECRET || 'secret_key'
+          process.env.JWT_SECRET
         );
         userId = decoded.userId;
       } catch (error) {

@@ -9,8 +9,7 @@ const routes = require('./routes');
 const config = require('./config/config');
 const { connectDB } = require('./config/database');
 const { crawlerQueue } = require('./services/crawlerQueue');
-const { executeCrawler } = require('./services/crawlerExecutor');
-const Task = require('./models/Task');
+const { processCrawlerJob } = require('./services/crawlerQueueWorker');
 const schedulerService = require('./services/schedulerService');
 const SystemMonitoringService = require('./services/systemMonitoringService');
 
@@ -68,6 +67,9 @@ app.use(errorHandler);
 // Start server
 const startServer = async () => {
   try {
+    // S1 安全自检：密钥未配置或为弱默认值时拒绝启动
+    config.validateEnv();
+
     // Connect to database
     await connectDB();
 
@@ -76,65 +78,8 @@ const startServer = async () => {
     SystemMonitoringService.startMonitoringTask(60000); // 每60秒收集一次指标
     consola.success('系统监控服务已启动');
 
-    // 设置爬虫队列处理
-    console.log('⊙ 初始化爬虫队列...');
-    crawlerQueue.process(1, async (job) => {
-      const { taskId, forumUrl, taskType, config: taskConfig, crawlType } = job.data;
-
-      try {
-        console.log(`[爬虫队列] 开始处理任务: ${taskId}`);
-
-        // 更新任务状态为运行中
-        await Task.findByIdAndUpdate(taskId, {
-          status: 'running',
-          progress: 5,
-          lastCrawlTime: new Date(),
-        });
-
-        // 执行爬虫
-        const result = await executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType);
-
-        // 获取任务信息，检查是否需要从标题更新名称
-        const task = await Task.findById(taskId);
-        if ((!task.name || task.name === '') && result.title) {
-          // 如果任务名称为空或未设置，使用爬虫返回的标题
-          task.name = result.title;
-          await task.save();
-          console.log(`[任务] 任务名称已更新为: ${result.title}`);
-        }
-
-        // 更新任务状态为完成
-        await Task.findByIdAndUpdate(taskId, {
-          status: 'completed',
-          progress: 100,
-          crawledItems: result.crawled_posts || 1,
-          totalItems: result.total_posts || 1,
-          endTime: new Date(),
-        });
-
-        job.progress(100);
-        return result;
-      } catch (error) {
-        console.error(`[爬虫队列] 任务失败: ${taskId}`, error.message);
-
-        // 更新任务状态为失败
-        await Task.findByIdAndUpdate(
-          taskId,
-          {
-            status: 'failed',
-            errorLog: [
-              {
-                timestamp: new Date(),
-                message: error.message,
-              },
-            ],
-          },
-          { new: true }
-        );
-
-        throw error;
-      }
-    });
+    // 设置爬虫队列处理（B1 收敛：worker 逻辑在 crawlerQueueWorker，状态流转在 taskService）
+    crawlerQueue.process(1, processCrawlerJob);
 
     consola.success('爬虫队列已初始化');
 

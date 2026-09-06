@@ -102,7 +102,7 @@ class AuthService {
       // 验证刷新令牌
       const decoded = jwt.verify(
         refreshToken,
-        process.env.JWT_REFRESH_SECRET || 'refresh_secret_key'
+        process.env.JWT_REFRESH_SECRET
       );
 
       const user = await User.findById(decoded.userId);
@@ -124,7 +124,7 @@ class AuthService {
           username: user.username,
           role: user.role,
         },
-        process.env.JWT_SECRET || 'secret_key',
+        process.env.JWT_SECRET,
         { expiresIn: '1h' }
       );
 
@@ -246,13 +246,13 @@ class AuthService {
         username: user.username,
         role: user.role,
       },
-      process.env.JWT_SECRET || 'secret_key',
+      process.env.JWT_SECRET,
       { expiresIn: '1h' }
     );
 
     const refreshToken = jwt.sign(
       { userId: user._id },
-      process.env.JWT_REFRESH_SECRET || 'refresh_secret_key',
+      process.env.JWT_REFRESH_SECRET,
       { expiresIn: '30d' }
     );
 

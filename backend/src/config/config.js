@@ -26,7 +26,7 @@ const config = {
   },
 
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-secret-key-here',
+    secret: process.env.JWT_SECRET,
     expiration: process.env.JWT_EXPIRATION || '24h',
   },
 
@@ -46,4 +46,29 @@ const config = {
   },
 };
 
+// S1 安全自检：安全密钥缺失或仍为示例/弱默认值时拒绝启动，避免静默降级为可伪造密钥
+const REQUIRED_SECRET_ENVS = ['JWT_SECRET', 'JWT_REFRESH_SECRET'];
+const KNOWN_INSECURE_SECRETS = new Set([
+  'your-secret-key-here',
+  'secret_key',
+  'refresh_secret_key',
+  'change-me-to-a-strong-random-secret',
+  'change-me-to-another-strong-random-secret',
+]);
+
+function validateEnv() {
+  const problems = REQUIRED_SECRET_ENVS.filter((name) => {
+    const value = process.env[name];
+    return !value || KNOWN_INSECURE_SECRETS.has(value);
+  });
+
+  if (problems.length > 0) {
+    throw new Error(
+      `安全环境变量缺失或为不安全的默认值: ${problems.join(', ')}。` +
+        '请设置强随机密钥（如 openssl rand -hex 32）后重启，参见 backend/.env.example。'
+    );
+  }
+}
+
 module.exports = config;
+module.exports.validateEnv = validateEnv;

@@ -2,6 +2,7 @@
 
 一个**完整的生产级论坛爬虫服务**，支持爬取小说和图片帖子，具有智能去重、多分页聚合、多楼层提取等高级功能。通过现代化Web UI管理爬取任务和预览内容。
 
+[![CI](https://github.com/tengshan2008/forum-crawler-service/actions/workflows/ci.yml/badge.svg)](https://github.com/tengshan2008/forum-crawler-service/actions/workflows/ci.yml)
 ![Build Status](https://img.shields.io/badge/status-active-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node.js](https://img.shields.io/badge/node.js-18+-green)

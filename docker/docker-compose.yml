@@ -47,6 +47,10 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       CORS_ORIGIN: http://localhost:3000
+      # JWT 密钥必须由部署方提供（docker/.env 或环境变量），缺失时 compose 直接报错，
+      # 避免容器以弱默认密钥启动。生成方式：openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:?请在 docker/.env 或环境变量中设置强随机 JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?请在 docker/.env 或环境变量中设置强随机 JWT_REFRESH_SECRET}
     ports:
       - "5000:5000"
     volumes:

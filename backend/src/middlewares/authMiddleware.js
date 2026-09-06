@@ -20,7 +20,7 @@ const authMiddleware = (req, res, next) => {
     // 验证令牌
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || 'secret_key'
+      process.env.JWT_SECRET
     );
 
     // 将解码的用户信息存储在请求对象中

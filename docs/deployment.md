@@ -53,6 +53,10 @@ cp frontend/.env.example frontend/.env
 nano frontend/.env
 ```
 
+> **注意（必读）**：后端 `JWT_SECRET` / `JWT_REFRESH_SECRET` 必须修改为强随机值
+> （如 `openssl rand -hex 32` 的输出），保留示例值或缺省时后端启动会直接失败；
+> Docker 部署时同样需要在 `docker/.env` 或环境变量中提供这两个密钥。
+
 ### 4. 构建 Docker 镜像
 
 ```bash

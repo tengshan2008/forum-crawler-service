@@ -2,12 +2,14 @@ const express = require('express');
 const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const { authMiddleware } = require('../middlewares/authMiddleware');
+const { authRateLimiter } = require('../middlewares/rateLimiter');
 
 const router = express.Router();
 
-// 用户注册
+// 用户注册（S3：认证端点限流，防暴力破解）
 router.post(
   '/register',
+  authRateLimiter,
   [
     body('email').isEmail().withMessage('请输入有效的邮箱'),
     body('username').isLength({ min: 3, max: 30 }).withMessage('用户名长度必须在3到30个字符之间'),
@@ -25,6 +27,7 @@ router.post(
 // 用户登录
 router.post(
   '/login',
+  authRateLimiter,
   [
     body('email').isEmail().withMessage('请输入有效的邮箱'),
     body('password').exists().withMessage('请输入密码')
@@ -33,7 +36,7 @@ router.post(
 );
 
 // 刷新访问令牌
-router.post('/refresh', authController.refreshToken);
+router.post('/refresh', authRateLimiter, authController.refreshToken);
 
 // 用户登出 - 移除认证中间件，允许没有令牌也能登出
 router.post('/logout', authController.logout);

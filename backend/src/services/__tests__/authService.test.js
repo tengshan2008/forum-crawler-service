@@ -27,6 +27,9 @@ let foundUser;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // generateTokens/refreshAccessToken 移除弱默认值 fallback 后，测试统一注入密钥
+  process.env.JWT_SECRET = 'test_access_secret';
+  process.env.JWT_REFRESH_SECRET = 'test_refresh_secret';
   foundUser = new mockUser({
     _id: 'u1',
     email: 'user@test.com',

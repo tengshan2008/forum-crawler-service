@@ -259,3 +259,119 @@ describe('taskService 状态机与归属（start/pause/resume）', () => {
     await expectAppError(service.resumeTask('x', { role: 'admin' }), 404);
   });
 });
+
+describe('taskService 系统内部状态流转（队列 worker / 调度器专用）', () => {
+  const makeTask = (overrides = {}) => ({
+    _id: 't1',
+    status: 'pending',
+    name: '',
+    save: jest.fn().mockResolvedValue(undefined),
+    errorLog: [],
+    schedule: {},
+    ...overrides,
+  });
+
+  describe('markRunning', () => {
+    it('置 running/progress 5/lastCrawlTime 并保存', async () => {
+      const task = makeTask();
+      mockTask.findById.mockResolvedValue(task);
+
+      const result = await service.markRunning('t1');
+
+      expect(task.status).toBe('running');
+      expect(task.progress).toBe(5);
+      expect(task.lastCrawlTime).toBeInstanceOf(Date);
+      expect(task.save).toHaveBeenCalled();
+      expect(result).toBe(task);
+    });
+
+    it('任务不存在抛 404', async () => {
+      mockTask.findById.mockResolvedValue(null);
+      await expectAppError(service.markRunning('x'), 404);
+    });
+  });
+
+  describe('markCompleted', () => {
+    it('置 completed/progress 100/统计与 endTime，空名称时采用爬虫标题', async () => {
+      const task = makeTask({ name: '' });
+      mockTask.findById.mockResolvedValue(task);
+
+      await service.markCompleted('t1', { title: '帖子标题', crawled_posts: 3, total_posts: 5 });
+
+      expect(task.name).toBe('帖子标题');
+      expect(task.status).toBe('completed');
+      expect(task.progress).toBe(100);
+      expect(task.crawledItems).toBe(3);
+      expect(task.totalItems).toBe(5);
+      expect(task.endTime).toBeInstanceOf(Date);
+      expect(task.save).toHaveBeenCalled();
+    });
+
+    it('统计字段缺失时回退为 1；已有名称不被覆盖', async () => {
+      const task = makeTask({ name: '既有名称' });
+      mockTask.findById.mockResolvedValue(task);
+
+      await service.markCompleted('t1', {});
+
+      expect(task.name).toBe('既有名称');
+      expect(task.crawledItems).toBe(1);
+      expect(task.totalItems).toBe(1);
+    });
+
+    it('任务不存在抛 404', async () => {
+      mockTask.findById.mockResolvedValue(null);
+      await expectAppError(service.markCompleted('x', {}), 404);
+    });
+  });
+
+  describe('markFailed（含 errorLog 上限）', () => {
+    it('置 failed 并追加 errorLog（message 格式），不再整体覆盖', async () => {
+      const existing = [{ timestamp: new Date(), message: '旧日志' }];
+      const task = makeTask({ errorLog: existing });
+      mockTask.findById.mockResolvedValue(task);
+
+      await service.markFailed('t1', new Error('crawl crashed'));
+
+      expect(task.status).toBe('failed');
+      expect(task.errorLog).toHaveLength(2);
+      expect(task.errorLog[0].message).toBe('旧日志');
+      expect(task.errorLog[1].message).toBe('crawl crashed');
+      expect(task.errorLog[1].timestamp).toBeInstanceOf(Date);
+      expect(task.save).toHaveBeenCalled();
+    });
+
+    it('errorLog 超过 50 条时裁剪，保留最近的 50 条', async () => {
+      const task = makeTask({ errorLog: Array.from({ length: 50 }, (_, i) => ({ timestamp: new Date(), message: `m${i}` })) });
+      mockTask.findById.mockResolvedValue(task);
+
+      await service.markFailed('t1', new Error('newest'));
+
+      expect(task.errorLog).toHaveLength(50);
+      expect(task.errorLog[49].message).toBe('newest');
+      expect(task.errorLog[0].message).toBe('m1'); // 最旧的 m0 被裁剪
+    });
+
+    it('任务不存在抛 404', async () => {
+      mockTask.findById.mockResolvedValue(null);
+      await expectAppError(service.markFailed('x', new Error('e')), 404);
+    });
+  });
+
+  describe('markScheduledRun', () => {
+    it('重置进度与计数，记录本轮调度时间', async () => {
+      const now = new Date();
+      const task = makeTask({ schedule: {}, progress: 80, crawledItems: 9, failedItems: 2 });
+      mockTask.findById.mockResolvedValue(task);
+
+      const result = await service.markScheduledRun(task, now);
+
+      expect(task.status).toBe('running');
+      expect(task.schedule.lastRunTime).toBe(now);
+      expect(task.progress).toBe(0);
+      expect(task.crawledItems).toBe(0);
+      expect(task.failedItems).toBe(0);
+      expect(task.save).toHaveBeenCalled();
+      expect(result).toBe(task);
+    });
+  });
+});
