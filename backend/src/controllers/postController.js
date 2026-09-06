@@ -1,6 +1,7 @@
 const Post = require('../models/Post');
 const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
+const { sendSuccess } = require('../utils/respond');
 
 // Get all posts
 exports.getAllPosts = catchAsync(async (req, res) => {
@@ -22,8 +23,7 @@ exports.getAllPosts = catchAsync(async (req, res) => {
 
   const total = await Post.countDocuments(filter);
 
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     data: posts,
     pagination: {
       total,
@@ -48,10 +48,7 @@ exports.getPostById = catchAsync(async (req, res) => {
     throw new AppError('Post not found', 404);
   }
 
-  res.status(200).json({
-    success: true,
-    data: post,
-  });
+  sendSuccess(res, { data: post });
 });
 
 // Get posts by task ID
@@ -82,8 +79,7 @@ exports.getPostsByTaskId = catchAsync(async (req, res) => {
 
   const total = await Post.countDocuments(filter);
 
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     data: posts,
     pagination: {
       total,
@@ -106,10 +102,7 @@ exports.createPost = catchAsync(async (req, res) => {
 
   const post = await Post.create(req.body);
 
-  res.status(201).json({
-    success: true,
-    data: post,
-  });
+  sendSuccess(res, { status: 201, data: post });
 });
 
 // Update post
@@ -127,10 +120,7 @@ exports.updatePost = catchAsync(async (req, res) => {
     throw new AppError('Post not found', 404);
   }
 
-  res.status(200).json({
-    success: true,
-    data: post,
-  });
+  sendSuccess(res, { data: post });
 });
 
 // Delete post
@@ -141,11 +131,7 @@ exports.deletePost = catchAsync(async (req, res) => {
     throw new AppError('Post not found', 404);
   }
 
-  res.status(200).json({
-    success: true,
-    data: null,
-    message: 'Post deleted successfully',
-  });
+  sendSuccess(res, { data: null, message: 'Post deleted successfully' });
 });
 
 // Get post statistics
@@ -175,8 +161,5 @@ exports.getPostStats = catchAsync(async (req, res) => {
     },
   ]);
 
-  res.status(200).json({
-    success: true,
-    data: stats,
-  });
+  sendSuccess(res, { data: stats });
 });

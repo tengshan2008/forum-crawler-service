@@ -19,17 +19,29 @@ backend/
     │   ├── Post.js                           # 内容数据模型
     │   └── Media.js                          # 媒体文件模型
     ├── controllers/
-    │   ├── taskController.js                 # 任务控制器 (业务逻辑)
-    │   └── postController.js                 # 内容控制器
+    │   ├── taskController.js                 # 任务控制器（瘦身后仅做参数与响应组装）
+    │   ├── postController.js                 # 内容控制器
+    │   └── authController.js                 # 认证控制器
+    ├── services/
+    │   ├── taskService.js                    # 任务业务规则与状态机（全系统唯一）
+    │   ├── crawlerQueue.js                   # Bull 队列封装
+    │   ├── crawlerQueueWorker.js             # 队列消费 worker（委托 taskService 流转状态）
+    │   ├── crawlerExecutor.js                # 爬虫子进程执行器
+    │   ├── schedulerService.js               # 定时调度（状态流转委托 taskService）
+    │   └── authService.js                    # 认证与令牌
     ├── routes/
     │   ├── index.js                          # 路由入口
     │   ├── taskRoutes.js                     # 任务路由定义
-    │   └── postRoutes.js                     # 内容路由定义
+    │   ├── postRoutes.js                     # 内容路由定义
+    │   └── authRoutes.js                     # 认证路由（含速率限制）
     ├── middlewares/
     │   ├── errorHandler.js                   # 全局错误处理中间件
-    │   └── cors.js                           # CORS 跨域处理
+    │   ├── authMiddleware.js                 # JWT 认证中间件
+    │   ├── rateLimiter.js                    # 认证端点限流（20 次/15 分钟/IP）
+    │   └── cors.js                           # CORS 白名单中间件
     └── utils/
         ├── AppError.js                       # 自定义错误类
+        ├── respond.js                        # 统一响应格式 sendSuccess
         └── catchAsync.js                     # 异步错误包装器
 ```
 
@@ -37,23 +49,19 @@ backend/
 
 ```
 crawler/
+├── crawl.py                                  # 生产唯一入口（v2.1.0 起单一入口，纯逻辑委托 lib/）
+├── image_downloader.py                       # 图片下载器（重试/反爬 headers/大小限制）
+├── migrate_content_hash.py                   # 存量数据 content_hash 回填脚本
+├── check_novel_linebreaks.py                 # 小说换行检查脚本
 ├── requirements.txt                          # Python 依赖
 ├── .env.example                              # 环境变量示例
-└── app/
-    ├── __init__.py                           # Python 包初始化
-    ├── config.py                             # 配置管理
-    ├── logger.py                             # 日志系统
-    ├── base_crawler.py                       # 基础爬虫类
-    ├── engine.py                             # 爬虫执行引擎
-    ├── spiders/
-    │   ├── __init__.py                       # Spiders 包初始化
-    │   └── generic_forum.py                  # 通用论坛爬虫实现
-    ├── pipelines/
-    │   ├── __init__.py                       # Pipelines 包初始化
-    │   ├── mongodb_pipeline.py               # MongoDB 数据保存管道
-    │   └── media_download.py                 # 媒体下载处理管道
-    └── middlewares/
-        └── __init__.py                       # Middlewares 包初始化
+├── lib/                                      # 纯函数库（pytest 直接覆盖）
+│   ├── text_utils.py                         # 文本清洗/内容哈希/乱码检测
+│   ├── url_utils.py                          # URL 提取与 meta 跳转解析
+│   ├── dedup.py                              # 去重判定纯函数（v2.2.0 下沉）
+│   └── post_builder.py                       # 媒体处理/文档构建/upsert 载荷（v2.2.0 下沉）
+├── logs/                                     # 任务日志落盘 task_<task_id>.log（已被 .gitignore 覆盖）
+└── tests/                                    # Pytest 单元测试
 ```
 
 ### 前端文件 (Frontend - React)

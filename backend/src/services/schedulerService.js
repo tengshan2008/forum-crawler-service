@@ -1,6 +1,7 @@
 const cron = require('node-cron');
 const Task = require('../models/Task');
 const { addCrawlerTask } = require('./crawlerQueue');
+const taskService = require('./taskService');
 
 class SchedulerService {
   constructor() {

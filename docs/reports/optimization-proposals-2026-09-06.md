@@ -138,9 +138,9 @@
 |--------|------|----------|
 | **P0** ✅ 已完成（2026-09-06，见 CHANGELOG v2.1.1） | S1 密钥 fail-fast、S2 CORS 白名单、S3 auth 限速 | 缺 env 无法启动；跨域默认拒绝；单测/集成覆盖 |
 | **P0** ✅ 已完成（2026-09-06） | D1 GitHub Actions CI | CI 全绿徽章，Jest+Pytest 自动执行 |
-| **P1** | B1+B3 队列 worker 抽取、状态机收敛（D3）、postController 试点 sendSuccess+测试 | index.js 无业务逻辑；errorLog 不再被覆盖；postController 有测试 |
-| **P1** | B2 删 validators.js、B5 errorLog 上限、C4 爬虫日志统一落盘 | grep 零命中；测试守护 |
-| **P1** | C1 爬虫 parser/dedup 下沉 lib/ | 新增 Pytest 用例，crawl.py 明显瘦身 |
+| **P1** ✅ 已完成（2026-09-07，见 CHANGELOG v2.2.0） | B1+B3 队列 worker 抽取、状态机收敛（D3）、postController 试点 sendSuccess+测试 | index.js 无业务逻辑；errorLog 不再被覆盖；postController 有测试 |
+| **P1** ✅ 已完成（2026-09-07） | B2 删 validators.js、B5 errorLog 上限、C4 爬虫日志统一落盘 | grep 零命中；测试守护 |
+| **P1** ✅ 已完成（2026-09-07） | C1 爬虫 parser/dedup 下沉 lib/ | 新增 Pytest 用例，crawl.py 明显瘦身 |
 | **P2** | C2 批量写库、C3 图片并发下载 | 单页耗时对比数据 |
 | **P2** | F1 Vite 迁移、F3 前端最小测试 | react-scripts 移除；api.js 有用例 |
 | **P2** | F2 TaskList 组件拆分、D2 任务日志展示、D4 队列取消/重试 | 页面行为不变（手工冒烟 + 集成脚本） |

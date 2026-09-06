@@ -7,6 +7,8 @@
 import sys
 import os
 import argparse
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import json
 import time
 import requests
@@ -37,9 +39,49 @@ from bson import ObjectId
 
 # 导入图片下载器
 from image_downloader import download_images, initialize_image_dirs
+from lib.dedup import evaluate_duplicate
+from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+
+class _Tee:
+    """将写入同时分发到多个流（C4：把 stdout 进度输出镜像落盘，格式保持不变）"""
+
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for stream in self._streams:
+            stream.write(data)
+
+    def flush(self):
+        for stream in self._streams:
+            try:
+                stream.flush()
+            except ValueError:
+                # 解释器退出阶段流可能已关闭，忽略即可
+                pass
+
+
+def setup_task_logging(task_id):
+    """任务日志统一落盘（C4）：
+    - stdout 输出（PROGRESS/CRAWLED/TITLE 等被 backend crawlerExecutor 解析的行）保持原样
+    - 同时镜像写入 crawler/logs/task_<task_id>.log（5MB x 2 轮转，*.log 已被 .gitignore 覆盖）
+    """
+    logs_dir = Path(__file__).resolve().parent / 'logs'
+    logs_dir.mkdir(exist_ok=True)
+    log_path = logs_dir / f'task_{task_id}.log'
+
+    file_handler = RotatingFileHandler(
+        log_path, maxBytes=5 * 1024 * 1024, backupCount=2, encoding='utf-8'
+    )
+    file_handler.setFormatter(logging.Formatter('%(message)s'))
+    logging.getLogger().addHandler(file_handler)
+
+    sys.stdout = _Tee(sys.__stdout__, file_handler.stream)
+    print(f"📝 任务日志落盘: {log_path}", flush=True)
 logger = logging.getLogger(__name__)
 
 class ForumCrawler:
@@ -824,145 +866,32 @@ class ForumCrawler:
         try:
             # 初始化图片目录
             initialize_image_dirs()
-            
+
             # 计算内容哈希值
             content_hash = self._calculate_content_hash(post_data['content'])
             content_length = len(post_data['content'])
             if content_hash:
                 print(f"✓ 内容哈希: {content_hash}", flush=True)
             print(f"✓ 内容长度: {content_length} 字符", flush=True)
-            
-            # 根据任务类型决定是否保存内容
-            if task_type == 'novel':
-                # 文本类：只保存文本内容，不保存图片
-                print(f"✓ 获取楼主文本内容: {len(post_data['content'])} 字符", flush=True)
-                media = []
-            elif task_type == 'image':
-                # 图片类：只保存图片，清空文本内容
-                if post_data['images']:
-                    print(f"✓ 获取楼主图片: {len(post_data['images'])} 张", flush=True)
-                    
-                    # 下载所有图片
-                    print(f"开始下载图片...", flush=True)
-                    image_urls = [img['url'] for img in post_data['images']]
-                    download_results = download_images(image_urls, self.task_id)
-                    
-                    # 将下载后的本地路径保存到 media
-                    media = []
-                    success_count = 0
-                    for i, result in enumerate(download_results):
-                        if result['success']:
-                            media.append({
-                                'url': result['local_path'],
-                                'originalUrl': image_urls[i],
-                                'description': f'楼主图片 {i + 1}'
-                            })
-                            success_count += 1
-                        else:
-                            print(f"⚠ 图片下载失败 {i + 1}: {result['error']}", flush=True)
-                    
-                    print(f"✓ 图片下载完成: {success_count}/{len(post_data['images'])} 成功", flush=True)
-                else:
-                    print(f"⚠ 楼主未发布图片，使用占位符", flush=True)
-                    media = [{
-                        'url': 'https://via.placeholder.com/300x200?text=No+Image',
-                        'description': '楼主未发布图片'
-                    }]
-                # 图片类不保存文本，只保存标题
-                post_data['content'] = f"楼主发布了 {len(post_data['images'])} 张图片"
-            else:  # mixed
-                # 混合类：既保存文本也保存图片
-                print(f"✓ 获取楼主内容: {len(post_data['content'])} 字符, {len(post_data['images'])} 张图片", flush=True)
-                
-                if post_data['images']:
-                    # 下载所有图片
-                    print(f"开始下载图片...", flush=True)
-                    image_urls = [img['url'] for img in post_data['images']]
-                    download_results = download_images(image_urls, self.task_id)
-                    
-                    # 将下载后的本地路径保存到 media
-                    media = []
-                    success_count = 0
-                    for i, result in enumerate(download_results):
-                        if result['success']:
-                            media.append({
-                                'url': result['local_path'],
-                                'originalUrl': image_urls[i],
-                                'description': f'楼主图片 {i + 1}'
-                            })
-                            success_count += 1
-                        else:
-                            print(f"⚠ 图片下载失败 {i + 1}: {result['error']}", flush=True)
-                    
-                    print(f"✓ 图片下载完成: {success_count}/{len(post_data['images'])} 成功", flush=True)
-                else:
-                    media = []
-            
-            # 构建 MongoDB 文档
-            post = {
-                'title': post_data['title'],
-                'content': post_data['content'],
-                'author': post_data['author'],
-                'sourceUrl': forum_url,
-                'postType': 'image' if task_type == 'image' else 'novel' if task_type == 'novel' else 'text',
-                'likes': 0,
-                'views': 0,
-                'replies': 0,
-                'status': 'active',
-                'tags': [task_type, 't66y'],
-                'taskId': ObjectId(self.task_id),
-                'userId': self.user_id,  # 添加用户ID
-                'createdAt': datetime.now(timezone.utc),
-            }
-            
-            # 添加内容哈希和内容长度
-            if content_hash:
-                post['contentHash'] = content_hash
-            if content_length is not None:
-                post['contentLength'] = content_length
-            
-            # 添加论坛最后发表时间
-            if forum_last_post_time:
-                post['forumLastPostTime'] = forum_last_post_time
-            
-            # 添加媒体信息
-            if media:
-                post['media'] = media
-            else:
-                # 如果没有媒体，添加占位符
-                post['media'] = [{
-                    'url': 'https://via.placeholder.com/300x200?text=No+Content',
-                    'description': '暂无媒体内容'
-                }]
-            
-            # 保存到数据库
+
+            # 媒体处理与内容替换（纯逻辑委托 lib/post_builder，下载函数注入）
+            media, content_override = build_media_and_content(
+                post_data, task_type, self.task_id, download_images
+            )
+            if content_override is not None:
+                post_data['content'] = content_override
+
+            # 构建 MongoDB 文档与 upsert 载荷（纯逻辑委托 lib/post_builder）
+            post = build_post_document(
+                post_data, forum_url, task_type, self.task_id, self.user_id,
+                content_hash, content_length, forum_last_post_time, media,
+            )
+
+            # 保存到数据库（upsert 方式，避免重复键错误）
             try:
-                # 使用 upsert 方式，避免重复键错误
-                result = self.posts_collection.update_one(
+                self.posts_collection.update_one(
                     {'sourceUrl': forum_url},  # 查询条件
-                    {
-                        '$set': {
-                            'title': post['title'],
-                            'content': post['content'],
-                            'author': post['author'],
-                            'postType': post['postType'],
-                            'likes': post['likes'],
-                            'views': post['views'],
-                            'replies': post['replies'],
-                            'status': post['status'],
-                            'tags': post['tags'],
-                            'taskId': post['taskId'],
-                            'userId': post['userId'],  # 确保更新也包含 userId
-                            'media': post['media'],
-                            'contentHash': post.get('contentHash'),
-                            'contentLength': post.get('contentLength'),
-                            'forumLastPostTime': post.get('forumLastPostTime'),
-                            'updatedAt': datetime.now(timezone.utc),
-                        },
-                        '$setOnInsert': {
-                            'createdAt': datetime.now(timezone.utc),
-                        }
-                    },
+                    build_upsert_updates(post),
                     upsert=True  # 如果不存在则插入
                 )
                 print(f"✓ 文章已保存: {post['title']}", flush=True)
@@ -995,91 +924,15 @@ class ForumCrawler:
             }
         """
         try:
-            # 检查URL是否存在
             url_post = self.posts_collection.find_one({'sourceUrl': post_url})
-            
-            if url_post:
-                # URL存在，进行内容长度判断
-                if content_length is not None:
-                    existing_length = url_post.get('contentLength')
-                    
-                    # 如果现有记录没有contentLength，尝试从content字段计算
-                    if existing_length is None and url_post.get('content'):
-                        existing_length = len(url_post.get('content', ''))
-                        # 都有长度信息，进行比较
-                        print(f"📏 内容长度对比（旧：{existing_length} → 新：{content_length}）", flush=True)
-                        if content_length > existing_length:
-                            # 新内容更长，需要更新
-                            print(f"📏 新内容更长，准备覆盖更新", flush=True)
-                            return {
-                                'exists': False,
-                                'reason': None,
-                                'message': None,
-                                'shouldUpdate': True
-                            }
-                        elif content_length == existing_length:
-                            # 内容长度相同，判断为重复
-                            print(f"📏 内容长度相同，帖子未更新，快速跳过", flush=True)
-                            return {
-                                'exists': True,
-                                'reason': 'unchanged',
-                                'message': f'帖子未更新（内容长度相同：{content_length}）'
-                            }
-                        else:
-                            # 新内容更短，保留原来的
-                            print(f"📏 新内容更短，保留原内容", flush=True)
-                            return {
-                                'exists': True,
-                                'reason': 'shorter_content',
-                                'message': f'新内容更短（旧：{existing_length}字 → 新：{content_length}字），保留原内容'
-                            }
-                    else:
-                        # 现有记录没有长度信息，可能是旧数据
-                        print(f"⚠ 现有记录无长度信息（旧数据），新内容长度：{content_length} 字符，将继续用内容哈希进行检查", flush=True)
-                
-                # 进行内容哈希检查
-                if content_hash:
-                    existing_hash = url_post.get('contentHash')
-                    if existing_hash and existing_hash == content_hash:
-                        # 相同URL，相同内容
-                        return {
-                            'exists': True,
-                            'reason': 'duplicate',
-                            'message': '帖子已存在（相同URL和内容）'
-                        }
-                    elif existing_hash and existing_hash != content_hash:
-                        # 相同URL，不同内容 - 如果没有内容长度信息，允许更新
-                        if content_length is None:
-                            return {
-                                'exists': False,
-                                'reason': None,
-                                'message': None,
-                                'shouldUpdate': True
-                            }
-                
-                # 无法通过哈希验证，保守处理
-                return {
-                    'exists': True,
-                    'reason': 'same_url',
-                    'message': '相同URL的帖子已存在'
-                }
-            
-            # URL不存在，检查内容哈希是否重复
-            if content_hash:
+
+            # 内容哈希撞车查询仅在 URL 未命中时进行（保持原有语义）
+            content_duplicate = None
+            if not url_post and content_hash:
                 content_duplicate = self.posts_collection.find_one({'contentHash': content_hash})
-                if content_duplicate:
-                    existing_url = content_duplicate.get('sourceUrl', '未知URL')
-                    return {
-                        'exists': True,
-                        'reason': 'content_duplicate',
-                        'message': f'相同内容已存在于: {existing_url}'
-                    }
-            
-            return {
-                'exists': False,
-                'reason': None,
-                'message': None
-            }
+
+            # 判定逻辑下沉 lib/dedup（纯函数，语义与原实现一致）
+            return evaluate_duplicate(url_post, content_duplicate, content_hash, content_length)
         except Exception as e:
             print(f"⚠ 检查帖子是否存在失败: {e}", file=sys.stderr, flush=True)
             return {
@@ -1384,6 +1237,9 @@ def main():
     parser.add_argument('--start-page', type=int, default=1, help='起始页码 (针对批量采集，默认为1)')
     
     args = parser.parse_args()
+    # C4：任务日志统一落盘
+    setup_task_logging(args.task_id)
+
     
     # 获取 MongoDB URI
     mongodb_uri = os.environ.get(

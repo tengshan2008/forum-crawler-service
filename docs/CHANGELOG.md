@@ -1,5 +1,41 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.2.0 - P1 结构收敛（优化建议路线图）
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`
+
+### B1+B3+D3 队列 worker 抽取与状态机收敛
+- 新增 `backend/src/services/crawlerQueueWorker.js`：原先内联在 index.js 的 57 行队列消费逻辑迁移至此，`index.js` 瘦身至 129 行
+- `taskService` 新增系统内部状态流转 API：`markRunning` / `markCompleted` / `markFailed` / `markScheduledRun`，任务状态规则全系统收敛为 taskService 一份（原先 index.js worker、schedulerService、taskService 三处并行）
+- 修复 `errorLog` 覆盖缺陷：worker 失败路径原先整体覆盖 errorLog 数组，现统一为追加
+- `schedulerService` 状态流转不再直接改库，全部委托 taskService
+- 修复调度批量任务缺陷：定时入队漏传 `crawlType`，导致 scheduled batch 任务按 single 执行
+
+### B3 postController 试点
+- `postController`（182 行）接入 `sendSuccess` 统一响应（响应形状保持不变，前端兼容），新增 11 个 Jest 用例锁定行为
+- 发现遗留：`updatePost` 仍直接透传 `req.body`（mass assignment），建议后续批次加白名单
+
+### B2/B5 死代码与日志上限
+- 删除零引用的 `backend/src/middlewares/validators.js`（78 行死代码）
+- `errorLog` 增加上限 50 条（超出裁剪最旧），防止长期运行任务日志无限增长
+
+### C1 爬虫纯逻辑下沉
+- 新增 `crawler/lib/dedup.py`：`evaluate_duplicate()` 去重判定纯函数（语义与原 `_is_post_exist` 一致），crawl.py 仅保留 DB 查询
+- 新增 `crawler/lib/post_builder.py`：媒体处理决策、MongoDB 文档构建、upsert 载荷构建（下载函数注入便于测试）
+- `crawl.py` 1420 → 1276 行；新增 Pytest 19 个用例（dedup 10 + post_builder 9）
+
+### C4 爬虫日志落盘
+- 新增 `setup_task_logging(task_id)`：stdout 进度输出（PROGRESS/CRAWLED/TITLE，被 crawlerExecutor 解析）格式保持不变，同时镜像写入 `crawler/logs/task_<task_id>.log`（5MB×2 轮转，`*.log` 已被 .gitignore 覆盖）
+- 说明：未做 147 处 print→logger 的机械改写，落盘目标通过 stdout 镜像达成，进度解析兼容性零风险
+
+### 测试
+- 后端 Jest 65 → 94（taskService 内部流转 9、worker 3、scheduler 6、postController 11，减旧 0）
+- 爬虫 Pytest 52 → 71
+- `docs/files.md` 同步：crawler 区块移除已归档的 `crawler/app/` 描述，补齐 services/lib 新文件
+
+---
+
 ## 版本 2.1.1 - P0 安全止血与 CI（优化建议路线图）
 **发布日期**: 2026-09-06
 **状态**: ✅ 已完成
