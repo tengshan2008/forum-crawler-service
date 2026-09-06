@@ -76,22 +76,22 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - ../frontend/index.html:/app/frontend/index.html
+      - ../frontend/vite.config.js:/app/frontend/vite.config.js
       - ../frontend/src:/app/frontend/src
       - ../frontend/public:/app/frontend/public
       - /app/frontend/node_modules
-    command: npm start
-    stdin_open: true # Support for interactive mode (needed for standard React scripts)
-    tty: true        # Support for interactive mode
+    command: npm run dev
+    stdin_open: true
+    tty: true
     depends_on:
       - backend
     networks:
       - forum-crawler-network-dev
     environment:
-      # 在开发环境中，React 开发服务器会通过 proxy 配置转发请求
-      # 所以不需要设置 REACT_APP_API_URL，让它使用相对路径
-      WDS_SOCKET_PORT: 3000 # Fix for React HMR in Docker
-      CHOKIDAR_USEPOLLING: "true" # Essential for hot reloading on some OS/Docker combinations
-      DANGEROUSLY_DISABLE_HOST_CHECK: "true"
+      # 开发环境：Vite 开发服务器把 /api 代理到容器网络内的 backend
+      VITE_PROXY_TARGET: http://backend:5000
+      VITE_USE_POLLING: "1" # Docker/挂载卷下文件监听需要轮询才能触发 HMR
 
 volumes:
   mongo_data:

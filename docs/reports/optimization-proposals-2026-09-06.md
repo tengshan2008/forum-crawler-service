@@ -141,9 +141,9 @@
 | **P1** ✅ 已完成（2026-09-07，见 CHANGELOG v2.2.0） | B1+B3 队列 worker 抽取、状态机收敛（D3）、postController 试点 sendSuccess+测试 | index.js 无业务逻辑；errorLog 不再被覆盖；postController 有测试 |
 | **P1** ✅ 已完成（2026-09-07） | B2 删 validators.js、B5 errorLog 上限、C4 爬虫日志统一落盘 | grep 零命中；测试守护 |
 | **P1** ✅ 已完成（2026-09-07） | C1 爬虫 parser/dedup 下沉 lib/ | 新增 Pytest 用例，crawl.py 明显瘦身 |
-| **P2** | C2 批量写库、C3 图片并发下载 | 单页耗时对比数据 |
-| **P2** | F1 Vite 迁移、F3 前端最小测试 | react-scripts 移除；api.js 有用例 |
-| **P2** | F2 TaskList 组件拆分、D2 任务日志展示、D4 队列取消/重试 | 页面行为不变（手工冒烟 + 集成脚本） |
+| **P2** ✅ 已完成（2026-09-07，见 CHANGELOG v2.3.0） | C2 批量写库、C3 图片并发下载 | 写库往返 -95%；图片下载 4.9x |
+| **P2** ✅ 已完成（2026-09-07） | F1 Vite 迁移、F3 前端最小测试 | react-scripts 移除；Vitest 13 用例 |
+| **P2** ✅ 已完成（2026-09-07） | F2 useTasks hook 抽取、D2 任务日志展示、D4 队列取消/重试 | 构建通过 + 后端状态机测试守护 |
 | **持续** | D5 文档治理、D6 API 文档同步、S4/S5/F4 | 每次变更入验收清单 |
 
 ---

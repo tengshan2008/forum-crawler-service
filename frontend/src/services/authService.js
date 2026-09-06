@@ -5,8 +5,8 @@ import axios from 'axios';
 // Nginx 会在 /api 路径下代理到后端
 const getApiBaseUrl = () => {
   // 如果定义了环境变量，使用它
-  if (process.env.REACT_APP_API_URL) {
-    return process.env.REACT_APP_API_URL;
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
   }
   
   // 否则使用相对路径，通过 Nginx 代理访问

@@ -105,11 +105,21 @@ exports.createPost = catchAsync(async (req, res) => {
   sendSuccess(res, { status: 201, data: post });
 });
 
+// updatePost 可更新字段白名单，防止 req.body 批量赋值篡改 userId/taskId/sourceUrl/contentHash 等敏感字段
+const POST_UPDATE_FIELDS = ['title', 'content', 'visibility', 'status', 'tags'];
+
 // Update post
 exports.updatePost = catchAsync(async (req, res) => {
+  const updates = {};
+  for (const field of POST_UPDATE_FIELDS) {
+    if (req.body[field] !== undefined) {
+      updates[field] = req.body[field];
+    }
+  }
+
   const post = await Post.findOneAndUpdate(
     { _id: req.params.id, userId: req.user.userId },
-    req.body,
+    updates,
     {
       new: true,
       runValidators: true,

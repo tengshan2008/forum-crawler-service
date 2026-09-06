@@ -1,46 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
+import { useTasks } from '../hooks/useTasks';
 import dayjs from 'dayjs';
 
 const TaskList = () => {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+  const {
+    tasks, loading, pagination, setPagination, crawlTypeFilter, setCrawlTypeFilter,
+    fetchTasks, deleteTask, startTask, pauseTask, cancelTask, retryTask,
+  } = useTasks();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [form] = Form.useForm();
-  const [crawlTypeFilter, setCrawlTypeFilter] = useState(null);
+  const [logState, setLogState] = useState({ open: false, loading: false, logs: [], exists: true });
   const navigate = useNavigate();
-
-  const fetchTasks = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await taskApi.getAll({
-        page: pagination.current,
-        limit: pagination.pageSize,
-        crawlType: crawlTypeFilter,
-      });
-      setTasks(response.data.data);
-      if (response.data.pagination.total !== pagination.total) {
-        setPagination((prev) => ({
-          ...prev,
-          total: response.data.pagination.total,
-        }));
-      }
-    } catch (error) {
-      console.error('Error fetching tasks:', error);
-      message.error('获取任务列表失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [pagination, crawlTypeFilter]);
-
-  useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
 
   const handleAddTask = () => {
     setEditingTask(null);
@@ -54,42 +29,23 @@ const TaskList = () => {
     setIsModalVisible(true);
   };
 
-  const handleDeleteTask = useCallback(async (id) => {
-    try {
-      await taskApi.delete(id);
-      message.success('任务删除成功');
-      fetchTasks();
-    } catch (error) {
-      console.error('Error deleting task:', error);
-      message.error(error.response?.data?.message || '删除任务失败');
-    }
-  }, [fetchTasks]);
-
-  const handleStartTask = useCallback(async (id) => {
-    try {
-      await taskApi.start(id);
-      message.success('任务已启动');
-      fetchTasks();
-    } catch (error) {
-      console.error('Error starting task:', error);
-      message.error(error.response?.data?.message || '启动任务失败');
-    }
-  }, [fetchTasks]);
-
-  const handlePauseTask = useCallback(async (id) => {
-    try {
-      await taskApi.pause(id);
-      message.success('任务已暂停');
-      fetchTasks();
-    } catch (error) {
-      console.error('Error pausing task:', error);
-      message.error(error.response?.data?.message || '暂停任务失败');
-    }
-  }, [fetchTasks]);
-
   const handlePreview = (taskId) => {
     navigate(`/preview/${taskId}`);
   };
+
+  // D2：查看任务执行日志（crawler/logs/task_<id>.log 尾部）
+  const handleViewLogs = useCallback(async (taskId) => {
+    setLogState({ open: true, loading: true, logs: [], exists: true });
+    try {
+      const response = await taskApi.logs(taskId, { lines: 200 });
+      const { logs, exists } = response.data.data;
+      setLogState({ open: true, loading: false, logs, exists });
+    } catch (error) {
+      console.error('Error fetching task logs:', error);
+      message.error('获取任务日志失败');
+      setLogState((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
 
   // 获取跳过原因的颜色
   const getReasonColor = (reason) => {
@@ -262,22 +218,37 @@ const TaskList = () => {
       render: (_, record) => (
         <Space size="small">
           {record.status === 'pending' && (
-            <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => handleStartTask(record._id)}>
+            <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => startTask(record._id)}>
               开始
             </Button>
           )}
           {record.status === 'running' && (
-            <Button type="primary" danger size="small" icon={<PauseOutlined />} onClick={() => handlePauseTask(record._id)}>
+            <Button type="primary" danger size="small" icon={<PauseOutlined />} onClick={() => pauseTask(record._id)}>
               暂停
             </Button>
           )}
+          {record.status === 'failed' && (
+            <Button type="primary" size="small" icon={<RedoOutlined />} onClick={() => retryTask(record._id)}>
+              重试
+            </Button>
+          )}
+          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(record._id)}>
+            日志
+          </Button>
           <Button type="primary" ghost size="small" icon={<EditOutlined />} onClick={() => handleEditTask(record)}>
             编辑
           </Button>
           <Button type="primary" ghost size="small" icon={<EyeOutlined />} onClick={() => handlePreview(record._id)}>
             预览
           </Button>
-          <Popconfirm title="确认删除?" onConfirm={() => handleDeleteTask(record._id)}>
+          {record.status === 'pending' && (
+            <Popconfirm title="确认取消该排队任务?" onConfirm={() => cancelTask(record._id)}>
+              <Button type="primary" danger ghost size="small" icon={<StopOutlined />}>
+                取消
+              </Button>
+            </Popconfirm>
+          )}
+          <Popconfirm title="确认删除?" onConfirm={() => deleteTask(record._id)}>
             <Button type="primary" danger ghost size="small" icon={<DeleteOutlined />}>
               删除
             </Button>
@@ -502,6 +473,38 @@ const TaskList = () => {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* D2：任务执行日志（尾部 200 行） */}
+      <Modal
+        title="任务执行日志"
+        open={logState.open}
+        onCancel={() => setLogState((prev) => ({ ...prev, open: false }))}
+        footer={null}
+        width={720}
+      >
+        {logState.loading ? (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>加载中...</div>
+        ) : logState.exists ? (
+          <pre
+            style={{
+              maxHeight: '480px',
+              overflowY: 'auto',
+              background: '#0f172a',
+              color: '#e2e8f0',
+              padding: '12px',
+              borderRadius: '4px',
+              fontSize: '12px',
+              lineHeight: 1.6,
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}
+          >
+            {logState.logs.join('\n')}
+          </pre>
+        ) : (
+          <span style={{ color: '#999' }}>暂无日志（任务尚未执行）</span>
+        )}
       </Modal>
     </div>
   );

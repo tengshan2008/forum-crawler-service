@@ -11,11 +11,18 @@ const mockTask = {
 jest.mock('../../models/Task', () => mockTask);
 jest.mock('../../services/crawlerQueue', () => ({
   addCrawlerTask: jest.fn(),
+  removeQueuedTask: jest.fn(),
   getQueueStats: jest.fn(),
+}));
+jest.mock('fs', () => ({
+  promises: {
+    readFile: jest.fn(),
+  },
 }));
 
 const service = require('../taskService');
 const AppError = require('../../utils/AppError');
+const path = require('path');
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -373,5 +380,87 @@ describe('taskService 系统内部状态流转（队列 worker / 调度器专用
       expect(task.save).toHaveBeenCalled();
       expect(result).toBe(task);
     });
+  });
+});
+
+describe('taskService.cancelTask（D4 取消排队任务）', () => {
+  const { removeQueuedTask } = require('../../services/crawlerQueue');
+  const adminUser = { role: 'admin', userId: 'admin1' };
+
+  const makeTask = (overrides = {}) => ({
+    _id: 't1',
+    status: 'pending',
+    save: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+  });
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('running 任务不可取消（400）', async () => {
+    mockTask.findById.mockResolvedValue(makeTask({ status: 'running' }));
+
+    await expectAppError(service.cancelTask('t1', adminUser), 400);
+    expect(removeQueuedTask).not.toHaveBeenCalled();
+  });
+
+  it('任务不在等待队列中时返回 400', async () => {
+    mockTask.findById.mockResolvedValue(makeTask({ status: 'pending' }));
+    removeQueuedTask.mockResolvedValue(false);
+
+    await expectAppError(service.cancelTask('t1', adminUser), 400);
+  });
+
+  it('排队任务取消成功：移除队列 job 并回退到 paused', async () => {
+    const task = makeTask({ status: 'pending' });
+    mockTask.findById.mockResolvedValue(task);
+    removeQueuedTask.mockResolvedValue(true);
+
+    const result = await service.cancelTask('t1', adminUser);
+
+    expect(removeQueuedTask).toHaveBeenCalledWith('t1');
+    expect(task.status).toBe('paused');
+    expect(task.save).toHaveBeenCalled();
+    expect(result).toBe(task);
+  });
+});
+
+describe('taskService.getTaskLogs（D2 任务日志尾部）', () => {
+  const fsPromises = require('fs').promises;
+  const adminUser = { role: 'admin', userId: 'admin1' };
+
+  beforeEach(() => jest.clearAllMocks());
+
+  it('返回日志文件尾部（默认 100 行）且 exists 为 true', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't1' });
+    const allLines = Array.from({ length: 150 }, (_, i) => `line-${i + 1}`);
+    fsPromises.readFile.mockResolvedValue(allLines.join('\n') + '\n');
+
+    const result = await service.getTaskLogs('t1', adminUser);
+
+    expect(fsPromises.readFile).toHaveBeenCalledWith(
+      expect.stringContaining(`crawler${path.sep}logs${path.sep}task_t1.log`),
+      'utf-8'
+    );
+    expect(result.exists).toBe(true);
+    expect(result.logs).toHaveLength(100);
+    expect(result.logs[0]).toBe('line-51');
+    expect(result.logs[99]).toBe('line-150');
+  });
+
+  it('日志文件不存在时返回空列表且 exists 为 false', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't2' });
+    fsPromises.readFile.mockRejectedValue(Object.assign(new Error('no file'), { code: 'ENOENT' }));
+
+    const result = await service.getTaskLogs('t2', adminUser);
+
+    expect(result.exists).toBe(false);
+    expect(result.logs).toEqual([]);
+  });
+
+  it('其他读文件错误原样抛出', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't3' });
+    fsPromises.readFile.mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
+
+    await expect(service.getTaskLogs('t3', adminUser)).rejects.toThrow('EACCES');
   });
 });

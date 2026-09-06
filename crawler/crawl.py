@@ -34,16 +34,20 @@ from lib.url_utils import (
 )
 
 # 导入 MongoDB 客户端
-from pymongo import MongoClient
+from pymongo import MongoClient, ReplaceOne
+from pymongo.errors import BulkWriteError
 from bson import ObjectId
 
 # 导入图片下载器
 from image_downloader import download_images, initialize_image_dirs
 from lib.dedup import evaluate_duplicate
-from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates
+from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates, dedupe_by_source_url
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+# 批量写库缓冲大小（C2）：攒够一批后 bulk_write，减少逐条 update_one 的网络往返
+POST_WRITE_BATCH_SIZE = 20
 
 
 class _Tee:
@@ -854,15 +858,8 @@ class ForumCrawler:
             traceback.print_exc()
             return content_parts, images
     
-    def _save_post(self, post_data, forum_url, task_type, forum_last_post_time=None):
-        """保存单个帖子到数据库
-        
-        Args:
-            post_data: 帖子数据
-            forum_url: 帖子URL
-            task_type: 任务类型
-            forum_last_post_time: 论坛上该帖最后一条回复的时间
-        """
+    def _prepare_post_document(self, post_data, forum_url, task_type, forum_last_post_time=None):
+        """准备待保存的帖子文档（哈希计算/媒体处理/文档构建），不写库；失败返回 None"""
         try:
             # 初始化图片目录
             initialize_image_dirs()
@@ -881,31 +878,75 @@ class ForumCrawler:
             if content_override is not None:
                 post_data['content'] = content_override
 
-            # 构建 MongoDB 文档与 upsert 载荷（纯逻辑委托 lib/post_builder）
-            post = build_post_document(
+            # 构建 MongoDB 文档（纯逻辑委托 lib/post_builder）
+            return build_post_document(
                 post_data, forum_url, task_type, self.task_id, self.user_id,
                 content_hash, content_length, forum_last_post_time, media,
             )
-
-            # 保存到数据库（upsert 方式，避免重复键错误）
-            try:
-                self.posts_collection.update_one(
-                    {'sourceUrl': forum_url},  # 查询条件
-                    build_upsert_updates(post),
-                    upsert=True  # 如果不存在则插入
-                )
-                print(f"✓ 文章已保存: {post['title']}", flush=True)
-                return True
-            except Exception as e:
-                print(f"✗ 保存数据库失败: {e}", file=sys.stderr, flush=True)
-                import traceback
-                traceback.print_exc()
-                return False
         except Exception as e:
             print(f"✗ 保存帖子失败: {e}", file=sys.stderr, flush=True)
             import traceback
             traceback.print_exc()
+            return None
+
+    def _flush_post_buffer(self, buffered, on_saved=None):
+        """批量写库（C2）：ReplaceOne upsert + ordered=False，减少逐条写库的网络往返。
+
+        Args:
+            buffered: [{'post': 文档, 'title': 标题}, ...] 待保存缓冲
+            on_saved: 每条成功写入后的回调（用于进度输出）
+
+        Returns:
+            成功写入的条目列表
+        """
+        buffered = dedupe_by_source_url(buffered)
+        if not buffered:
+            return []
+
+        try:
+            operations = [
+                ReplaceOne(
+                    {'sourceUrl': item['post']['sourceUrl']},
+                    build_upsert_updates(item['post']),
+                    upsert=True,
+                )
+                for item in buffered
+            ]
+            error_indexes = set()
+            try:
+                self.posts_collection.bulk_write(operations, ordered=False)
+            except BulkWriteError as bwe:
+                # 部分失败时其余文档仍已写入，仅统计失败条目
+                error_indexes = {e.get('index') for e in bwe.details.get('writeErrors', [])}
+                print(f"⚠ 批量写库部分失败: {len(error_indexes)}/{len(operations)} 条", file=sys.stderr, flush=True)
+
+            saved_items = [item for i, item in enumerate(buffered) if i not in error_indexes]
+            for item in saved_items:
+                print(f"✓ 文章已保存: {item['post']['title']}", flush=True)
+                if on_saved:
+                    on_saved(item)
+            return saved_items
+        except Exception as e:
+            print(f"✗ 批量保存失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _save_post(self, post_data, forum_url, task_type, forum_last_post_time=None):
+        """保存单个帖子到数据库（单帖模式路径：准备文档后立即批量写库）
+
+        Args:
+            post_data: 帖子数据
+            forum_url: 帖子URL
+            task_type: 任务类型
+            forum_last_post_time: 论坛上该帖最后一条回复的时间
+        """
+        post = self._prepare_post_document(post_data, forum_url, task_type, forum_last_post_time)
+        if post is None:
             return False
+
+        saved = self._flush_post_buffer([{'post': post, 'title': post_data['title']}])
+        return len(saved) > 0
     
     def _is_post_exist(self, post_url, content_hash=None, content_length=None):
         """检查帖子是否已经存在于数据库中（支持内容长度判断和内容哈希去重）
@@ -958,6 +999,17 @@ class ForumCrawler:
             skipped_count = 0
             failed_count = 0
             skip_details = []  # 记录跳过原因
+
+            # 批量写库缓冲（C2）：文档攒够一批后 bulk_write，写库成功再计入进度
+            post_buffer = []
+
+            def count_saved(item):
+                nonlocal crawled_count
+                crawled_count += 1
+                print(f"CRAWLED:{crawled_count}", flush=True)
+                # 批量模式下，使用第一个帖子的标题作为任务名称
+                if total_posts > 1 and crawled_count == 1:
+                    print(f"TITLE:{item['title']}", flush=True)
             
             if is_batch:
                 print("🔄 批量采集模式: 开始逐页爬取版块帖子", flush=True)
@@ -1115,14 +1167,14 @@ class ForumCrawler:
                     if check_result.get('shouldUpdate'):
                         print(f"📝 检测到URL相同但内容更新，准备覆盖更新: {actual_post_url}", flush=True)
                     
-                    # 保存帖子时使用最终的URL
-                    if self._save_post(post_data, actual_post_url, task_type):
-                        crawled_count += 1
-                        print(f"CRAWLED:{crawled_count}", flush=True)
-                        
-                        # 批量模式下，使用第一个帖子的标题作为任务名称
-                        if total_posts > 1 and crawled_count == 1:
-                            print(f"TITLE:{post_data['title']}", flush=True)
+                    # 准备文档并攒批，写库成功后由 count_saved 计入进度（C2 批量写库）
+                    doc = self._prepare_post_document(post_data, actual_post_url, task_type)
+                    if doc:
+                        post_buffer.append({'post': doc, 'title': post_data['title']})
+
+                    if len(post_buffer) >= POST_WRITE_BATCH_SIZE:
+                        self._flush_post_buffer(post_buffer, on_saved=count_saved)
+                        post_buffer = []
                     
                     # 随机延迟避免被封（延长到3-5秒）
                     import time
@@ -1130,6 +1182,11 @@ class ForumCrawler:
                     delay = random.uniform(3, 5)
                     print(f"⏳ 处理完帖子后等待 {delay:.1f} 秒...", flush=True)
                     time.sleep(delay)
+
+                # 冲刷剩余缓冲（C2 批量写库）
+                if post_buffer:
+                    self._flush_post_buffer(post_buffer, on_saved=count_saved)
+                    post_buffer = []
             else:
                 print("📄 单帖采集模式: 开始爬取单个帖子", flush=True)
                 total_posts = 1

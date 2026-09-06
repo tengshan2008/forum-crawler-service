@@ -75,8 +75,8 @@ services:
       - backend
     networks:
       - forum-crawler-network
-    environment:
-      REACT_APP_API_BASE_URL: http://localhost:5000/api
+    # 前端不注入 API 地址：浏览器端默认使用相对路径 /api，
+    # 由 nginx 将 /api 反向代理到 backend（直连 5000 会被 CORS 白名单拒绝）
 
 volumes:
   mongo_data:

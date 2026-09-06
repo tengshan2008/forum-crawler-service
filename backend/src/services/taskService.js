@@ -1,6 +1,8 @@
 const Task = require('../models/Task');
 const AppError = require('../utils/AppError');
-const { addCrawlerTask } = require('./crawlerQueue');
+const { addCrawlerTask, removeQueuedTask } = require('./crawlerQueue');
+const fs = require('fs').promises;
+const path = require('path');
 
 // updateTask 可更新字段白名单，防止 req.body 批量赋值篡改 status/userId 等敏感字段
 const TASK_UPDATE_FIELDS = [
@@ -259,6 +261,50 @@ async function markScheduledRun(task, now) {
   return task;
 }
 
+// 取消排队中的任务（D4）：running 任务不可取消；取消后回退到 paused
+async function cancelTask(taskId, user) {
+  const { task } = await findAndAuthorize(taskId, user, { zh: '取消', en: 'cancel' });
+
+  if (task.status === 'running') {
+    throw new AppError('任务正在执行中，无法取消', 400);
+  }
+
+  const removed = await removeQueuedTask(taskId);
+  if (!removed) {
+    throw new AppError('任务不在等待队列中', 400);
+  }
+
+  task.status = 'paused';
+  await task.save();
+  return task;
+}
+
+// 任务执行日志尾部（D2）：读取 crawler/logs/task_<taskId>.log 的最后 N 行
+const DEFAULT_LOG_LINES = 100;
+
+async function getTaskLogs(taskId, user, { lines = DEFAULT_LOG_LINES } = {}) {
+  const { task } = await findAndAuthorize(taskId, user, { zh: '查看', en: 'view' });
+
+  const logPath = path.join(__dirname, '..', '..', '..', 'crawler', 'logs', `task_${taskId}.log`);
+  let content;
+  try {
+    content = await fs.readFile(logPath, 'utf-8');
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      return { task, logs: [], logFile: logPath, exists: false };
+    }
+    throw err;
+  }
+
+  const allLines = content.split('\n').filter((line) => line.length > 0);
+  return {
+    task,
+    logs: allLines.slice(-lines),
+    logFile: logPath,
+    exists: true,
+  };
+}
+
 module.exports = {
   buildVisibilityFilter,
   listTasks,
@@ -273,4 +319,6 @@ module.exports = {
   markCompleted,
   markFailed,
   markScheduledRun,
+  cancelTask,
+  getTaskLogs,
 };

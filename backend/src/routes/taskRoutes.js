@@ -7,6 +7,9 @@ const router = express.Router();
 // 应用认证中间件
 router.use(authMiddleware.authMiddleware);
 
+// Crawler stats - 只有管理员可以访问（必须注册在 /:id 之前，否则会被 :id 匹配吞掉）
+router.get('/crawler/stats', authMiddleware.requireRole(['admin']), taskController.getCrawlerStats);
+
 // Task routes
 router.get('/', taskController.getAllTasks);
 router.post('/', taskController.createTask);
@@ -18,8 +21,7 @@ router.delete('/:id', taskController.deleteTask);
 router.post('/:id/start', taskController.startTask);
 router.post('/:id/pause', taskController.pauseTask);
 router.post('/:id/resume', taskController.resumeTask);
-
-// Crawler stats - 只有管理员可以访问
-router.get('/crawler/stats', authMiddleware.requireRole(['admin']), taskController.getCrawlerStats);
+router.post('/:id/cancel', taskController.cancelTask);
+router.get('/:id/logs', taskController.getTaskLogs);
 
 module.exports = router;

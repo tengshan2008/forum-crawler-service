@@ -9,6 +9,7 @@ from lib.post_builder import (  # noqa: E402
     build_media_and_content,
     build_post_document,
     build_upsert_updates,
+    dedupe_by_source_url,
 )
 
 BASE_POST_DATA = {
@@ -137,3 +138,26 @@ def test_build_upsert_updates_缺省时间为当前_utc时间():
     assert updates['$set']['contentHash'] is None
     assert updates['$set']['updatedAt'].tzinfo is timezone.utc
     assert updates['$setOnInsert']['createdAt'] == updates['$set']['updatedAt']
+
+
+def test_dedupe_by_source_url_保留后出现的同_url条目且维持首现顺序():
+    items = [
+        {'post': {'sourceUrl': 'http://a'}, 'title': 'a1'},
+        {'post': {'sourceUrl': 'http://b'}, 'title': 'b'},
+        {'post': {'sourceUrl': 'http://a'}, 'title': 'a2'},  # 重定向后同 URL，保留较新的 a2
+    ]
+    deduped = dedupe_by_source_url(items)
+
+    assert [it['title'] for it in deduped] == ['a2', 'b']
+
+
+def test_dedupe_by_source_url_无重复时原样返回():
+    items = [
+        {'post': {'sourceUrl': 'http://a'}, 'title': 'a'},
+        {'post': {'sourceUrl': 'http://b'}, 'title': 'b'},
+    ]
+    assert dedupe_by_source_url(items) == items
+
+
+def test_dedupe_by_source_url_空缓冲返回空列表():
+    assert dedupe_by_source_url([]) == []

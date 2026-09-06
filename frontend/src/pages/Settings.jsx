@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, Form, Input, Button, Message, Row, Col, Divider, Space, Alert, Modal } from 'antd';
+import { Card, Form, Input, Button, Row, Col, Divider, Space, Alert, Modal } from 'antd';
 import { LockOutlined, UserOutlined, MailOutlined, SaveOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { getCurrentUser } from '../services/authService';
 import { updateProfile, changePassword } from '../services/api';

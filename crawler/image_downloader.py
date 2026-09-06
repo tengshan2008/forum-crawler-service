@@ -10,6 +10,7 @@ import requests
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 import logging
 
@@ -182,36 +183,39 @@ def download_image(url, task_id, max_retries=3):
     
     return {'success': False, 'error': f'重试{max_retries}次后仍然失败'}
 
-def download_images(image_urls, task_id):
+def download_images(image_urls, task_id, max_workers=5):
     """
-    批量下载图片
-    
+    批量并发下载图片（C3：批量内 ThreadPoolExecutor 并发，结果顺序与输入一致）
+
     Args:
         image_urls: 图片URL列表
         task_id: 任务ID
-    
+        max_workers: 并发下载数
+
     Returns:
-        list: 下载结果列表
+        list: 下载结果列表（顺序与 image_urls 一一对应，供按索引映射媒体）
     """
     if not isinstance(image_urls, list) or len(image_urls) == 0:
         return []
-    
+
     results = []
-    batch_size = 5  # 并发下载数
-    
+    batch_size = max_workers
+
     for i in range(0, len(image_urls), batch_size):
         batch = image_urls[i:i+batch_size]
-        
-        for url in batch:
-            result = download_image(url, task_id)
-            results.append(result)
-        
+
+        # 批量内并发下载；按提交顺序收集结果，保证与输入顺序一致
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(batch))) as executor:
+            futures = [executor.submit(download_image, url, task_id) for url in batch]
+            for future in futures:
+                results.append(future.result())
+
         # 打印进度 (同时输出百分比格式供 Node.js 解析)
         progress = min(i + batch_size, len(image_urls))
         progress_percent = int((progress / len(image_urls)) * 100)
         print(f"[图片下载] 进度: {progress}/{len(image_urls)}", flush=True)
         print(f"PROGRESS:{progress_percent}", flush=True)
-    
+
     return results
 
 def delete_task_images(task_id):

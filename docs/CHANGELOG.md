@@ -1,5 +1,47 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.3.0 - P2 性能与体验（优化建议路线图）
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`
+
+### 安全补遗
+- `postController.updatePost` 增加 `POST_UPDATE_FIELDS` 白名单（title/content/visibility/status/tags），修复 mass assignment（P1 遗留标记项，前端未使用帖子更新接口，无兼容性影响）
+
+### D2/D4 任务可观测与控制
+- 后端新增 `POST /tasks/:id/cancel`：取消排队任务（running 拒绝 400，取消后回退 paused），`crawlerQueue.removeQueuedTask` 从 waiting/delayed 中移除 job
+- 后端新增 `GET /tasks/:id/logs?lines=N`（默认 100）：读取 `crawler/logs/task_<id>.log` 尾部，文件不存在返回 `exists: false` 而非报错
+- 前端 TaskList 新增操作：取消（pending）、重试（failed）、日志（全部任务，Modal 展示尾部 200 行）
+- F2：新增 `frontend/src/hooks/useTasks.js`，任务列表数据获取与操作封装下沉 hook，页面组件只保留渲染
+
+### C2 爬虫批量写库
+- crawl.py `_save_post` 拆分：`_prepare_post_document`（哈希/媒体/文档构建）+ `_flush_post_buffer`（ReplaceOne upsert + `bulk_write(ordered=False)`，BulkWriteError 部分失败时仅剔除失败条目）
+- 批量模式文档攒批 20 条/批（`POST_WRITE_BATCH_SIZE`）；同批 sourceUrl 去重下沉纯函数 `lib/post_builder.dedupe_by_source_url`（保留较新条目，防唯一索引撞车）
+- 单帖模式行为不变（准备后立即写库）；PROGRESS/CRAWLED/TITLE stdout 格式不变（crawlerExecutor 兼容）
+- 基准（模拟 2ms/次写库往返）：N=100 往返 100→5 次、耗时 207.1ms→10.5ms（-95%）；N=500 耗时 1038.8ms→52.5ms
+
+### C3 图片并发下载
+- `download_images` 批内改为 ThreadPoolExecutor 真并发（原实现注释写"并发下载数 5"实为串行循环），结果顺序与输入一致（媒体按索引映射依赖顺序）
+- 基准（模拟 100ms/张 × 20 张）：串行 2002ms → 并发 405ms（4.9x，理论 5x）；PROGRESS 输出格式不变
+
+### F1 前端迁移 Vite
+- react-scripts 5 → vite 5 + @vitejs/plugin-react；含 JSX 的 16 个 .js 重命名 .jsx（导入全部省略扩展名，无需改引用）；index.html 迁至项目根并挂载 `/src/index.jsx`
+- CRA 环境变量 `REACT_APP_*` → `import.meta.env.VITE_*`（api.js / authService.js / .env.example 同步）
+- 构建验证：3900 模块、dist 1.79MB（gzip 551KB）、构建 4s；dev server 启动约 100ms（原 CRA 数十秒）
+- 顺带移除 Settings.jsx 中 antd 不存在的 `Message` 死导入（Rollup 构建警告暴露的遗留问题）
+- Docker/compose 同步：Dockerfile.frontend 产物 `build`→`dist` 并补 COPY index.html/vite.config.js；Dockerfile.frontend.dev 改 `npm run dev`；compose dev 增加 index.html/vite.config.js 挂载、`VITE_PROXY_TARGET`/`VITE_USE_POLLING`，移除 CRA 专属的 WDS_SOCKET_PORT/CHOKIDAR_USEPOLLING/DANGEROUSLY_DISABLE_HOST_CHECK；compose prod 移除无效的 `REACT_APP_API_BASE_URL`（CRA 构建期变量，运行时注入本就无效，且浏览器直连 5000 会被 CORS 白名单拒绝，统一走 nginx /api 反代）
+
+### F3 前端最小测试
+- 引入 Vitest（jsdom 环境），新增 13 个用例：api.js（baseURL 默认与 VITE_API_BASE_URL 覆盖、Bearer token 附加、logout 不带 token、401 清理本地认证）+ authService.js（login/logout 存储、损坏 user 数据自愈、isAuthenticated、updateProfile/changePassword 端点）
+- package.json scripts 改为 dev/build/preview/test（vitest run），移除 react-scripts、CRA eslintConfig 与 proxy 字段
+
+### 测试
+- 后端 Jest 94 → 101（cancelTask 3、getTaskLogs 3、updatePost 白名单 1）
+- 爬虫 Pytest 71 → 84（批量写库 6、图片并发 4、缓冲去重 3）
+- 前端 Vitest 0 → 13
+
+---
+
 ## 版本 2.2.0 - P1 结构收敛（优化建议路线图）
 **发布日期**: 2026-09-07
 **状态**: ✅ 已完成

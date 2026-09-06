@@ -6,9 +6,9 @@ WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
 
-# In dev mode, we don't copy src/public here because we use volume mapping
+# In dev mode, we don't copy src/index.html here because we use volume mapping
 # ensuring the container always sees the latest host files.
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["npm", "run", "dev"]

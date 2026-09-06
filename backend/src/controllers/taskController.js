@@ -73,6 +73,22 @@ exports.resumeTask = catchAsync(async (req, res) => {
   sendSuccess(res, { data: task, message: 'Task resumed' });
 });
 
+// Cancel queued task
+exports.cancelTask = catchAsync(async (req, res) => {
+  const task = await taskService.cancelTask(req.params.id, req.user);
+
+  sendSuccess(res, { data: task, message: 'Task cancelled' });
+});
+
+// Get task execution logs (tail)
+exports.getTaskLogs = catchAsync(async (req, res) => {
+  const { task, logs, exists } = await taskService.getTaskLogs(req.params.id, req.user, {
+    lines: parseInt(req.query.lines) || undefined,
+  });
+
+  sendSuccess(res, { data: { taskId: task._id, logs, exists } });
+});
+
 // Get crawler queue stats
 exports.getCrawlerStats = catchAsync(async (req, res) => {
   const stats = await getQueueStats();

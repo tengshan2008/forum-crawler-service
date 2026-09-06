@@ -6,17 +6,17 @@ import { message } from 'antd';
 // Nginx 会在 /api 路径下代理到后端
 const getApiBaseUrl = () => {
   // 如果定义了环境变量，使用它
-  if (process.env.REACT_APP_API_BASE_URL) {
-    return process.env.REACT_APP_API_BASE_URL;
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
   }
-  
+
   // 否则使用相对路径，通过 Nginx 代理访问
   // 这样 /api 请求会被 Nginx 代理到 http://backend:5000/api
   return '/api';
 };
 
 const API_BASE_URL = getApiBaseUrl();
-const API_TIMEOUT = process.env.REACT_APP_API_TIMEOUT || 30000;
+const API_TIMEOUT = import.meta.env.VITE_API_TIMEOUT || 30000;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -81,6 +81,8 @@ export const taskApi = {
   start: (id) => api.post(`/tasks/${id}/start`),
   pause: (id) => api.post(`/tasks/${id}/pause`),
   resume: (id) => api.post(`/tasks/${id}/resume`),
+  cancel: (id) => api.post(`/tasks/${id}/cancel`),
+  logs: (id, params) => api.get(`/tasks/${id}/logs`, { params }),
 };
 
 // Post API

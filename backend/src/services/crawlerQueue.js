@@ -76,6 +76,7 @@ async function clearQueue() {
 module.exports = {
   crawlerQueue,
   addCrawlerTask,
+  removeQueuedTask,
   getQueueStats,
   clearQueue,
 };

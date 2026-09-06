@@ -154,6 +154,38 @@ describe('postController.updatePost', () => {
     expect(res.json).toHaveBeenCalledWith({ success: true, data: { _id: 'p1', content: 'new' } });
   });
 
+  it('只接受白名单字段，忽略 taskId/userId/sourceUrl/contentHash 等敏感字段', async () => {
+    Post.findOneAndUpdate.mockResolvedValue({ _id: 'p1' });
+    const res = makeRes();
+
+    await controller.updatePost(
+      makeReq({
+        params: { id: 'p1' },
+        body: {
+          title: '新标题',
+          content: '新内容',
+          tags: ['a'],
+          status: 'archived',
+          // 越权字段应被忽略
+          userId: 'someone-else',
+          taskId: 'tampered-task',
+          sourceUrl: 'http://evil',
+          contentHash: 'tampered',
+          postType: 'novel',
+          likes: 99999,
+        },
+      }),
+      res
+    );
+
+    expect(Post.findOneAndUpdate.mock.calls[0][1]).toEqual({
+      title: '新标题',
+      content: '新内容',
+      tags: ['a'],
+      status: 'archived',
+    });
+  });
+
   it('帖子不存在抛 404', async () => {
     Post.findOneAndUpdate.mockResolvedValue(null);
     const res = makeRes();
