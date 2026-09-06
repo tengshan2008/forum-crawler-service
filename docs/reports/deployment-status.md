@@ -79,7 +79,6 @@ forum-crawler-service/
 │   │   └── utils/          # 工具函数
 │   └── package.json
 ├── crawler/                # Python 爬虫引擎
-│   ├── app/
 │   │   ├── engine.py       # 爬虫引擎
 │   │   ├── base_crawler.py # 基础爬虫类
 │   │   ├── spiders/        # 具体爬虫实现
@@ -94,7 +93,6 @@ forum-crawler-service/
 │   └── package.json
 ├── docker/                 # Docker 配置
 │   ├── Dockerfile.backend  # 后端镜像
-│   ├── Dockerfile.crawler  # 爬虫镜像
 │   ├── Dockerfile.frontend # 前端镜像
 │   ├── docker-compose.yml  # Docker Compose 编排
 │   └── nginx.conf          # Nginx 反向代理配置

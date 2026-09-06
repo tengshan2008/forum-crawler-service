@@ -60,7 +60,6 @@ forum-crawler-service/
 │   └── scripts/                 # 后端脚本
 │
 ├── crawler/                      # Python 爬虫服务
-│   ├── app/                     # 爬虫应用
 │   ├── crawl.py                 # 主爬虫脚本
 │   ├── image_downloader.py      # 图片下载模块
 │   ├── migrate_content_hash.py  # 内容哈希迁移脚本
@@ -79,7 +78,6 @@ forum-crawler-service/
 ├── docker/                       # Docker 配置
 │   ├── Dockerfile.backend       # 后端镜像
 │   ├── Dockerfile.backend.dev   # 后端开发镜像
-│   ├── Dockerfile.crawler       # 爬虫镜像
 │   ├── Dockerfile.frontend      # 前端镜像
 │   ├── Dockerfile.frontend.dev  # 前端开发镜像
 │   ├── docker-compose.yml       # 生产配置

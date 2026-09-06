@@ -60,7 +60,7 @@ cd crawler
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-python -m app.engine
+python crawl.py   # 也可由后端经队列自动调度，无需手动启动
 ```
 
 #### 前端启动
@@ -307,9 +307,10 @@ MAX_CONCURRENT_TASKS=10  # 增加并发数
 
 ### 缩短请求间隔
 
-编辑 `crawler/app/config.py`:
+编辑 `crawler/crawl.py` 中 `fetch_page` 的 `delay_range` 参数:
 ```python
-DOWNLOAD_DELAY = 0.5  # 改为 0.5 秒
+def fetch_page(self, url, max_retries=3, delay_range=(1, 2), request_timeout=30):
+    # delay_range: 随机延迟范围（秒），可缩小为 (0.5, 1)
 ```
 
 ### 增加数据库查询缓存

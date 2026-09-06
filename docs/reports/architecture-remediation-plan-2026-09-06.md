@@ -118,9 +118,9 @@ P0-3 白名单 ────┴──▶ P1-1 后端 jest ──▶ P2-1 service 
 
 ## 验收清单（整改完成定义）
 
-- [ ] 仓库中仅一条爬虫生产入口，文档三处以上引用已修正
-- [ ] `grep -r "imageDownloader\|require('joi')"` 零命中；孤立 Dockerfile 已归档
-- [ ] `npm test` ≥10 用例全绿（含 updateTask 白名单用例）
-- [ ] `pytest` ≥10 用例全绿（含改写后的 3 个数据脚本）
-- [ ] `taskController.js` 中无角色过滤/校验/命名等业务规则残留
-- [ ] 本清单归档至 `docs/reports/`，并在 `docs/CHANGELOG.md` 记录
+- [x] 仓库中仅一条爬虫生产入口，文档三处以上引用已修正（P0-1，2026-09-06）
+- [x] `grep -r "imageDownloader\|require('joi')"` 零命中；孤立 Dockerfile 已归档（P0-2）
+- [x] `npm test` ≥10 用例全绿（含 updateTask 白名单用例）（P1-1：31 用例；P2 后 51 用例）
+- [x] `pytest` ≥10 用例全绿（含改写后的 3 个数据脚本）（P1-2：52 用例）
+- [x] `taskController.js` 中无角色过滤/校验/命名等业务规则残留（P2-1，原用例零修改回归通过）
+- [x] 本清单归档至 `docs/reports/`，并在 `docs/CHANGELOG.md` 记录（v2.1.0）

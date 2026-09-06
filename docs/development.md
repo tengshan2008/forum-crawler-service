@@ -176,51 +176,32 @@ router.use('/api/new-items', newRoutes);
 
 ### 2. 添加新爬虫
 
-#### 步骤 1: 创建爬虫类
+> 注：原 `crawler/app/` 模块化实现已归档（见 `docs/archive/crawler_app_parallel_impl/README.md`），
+> 当前唯一实现为 `crawler/crawl.py`。扩展方式如下。
 
-在 `crawler/app/spiders/custom_crawler.py` 中继承 `BaseCrawler`:
+#### 步骤 1: 在 crawl.py 中添加站点解析
+
+在 `crawler/crawl.py` 的 `ForumCrawler` 类中添加站点适配方法：
 
 ```python
-from app.base_crawler import BaseCrawler
-from app.logger import logger
-
-class CustomForumCrawler(BaseCrawler):
-    """自定义论坛爬虫"""
-    
-    def extract_posts(self, url):
-        """提取帖子"""
+class ForumCrawler:
+    def extract_posts_custom(self, soup):
+        """自定义论坛的帖子提取"""
         try:
-            html = self.fetch_page(url)
-            soup = self.parse_html(html)
             posts = []
-            
-            # 自定义解析逻辑
+            # 自定义解析逻辑（基于 BeautifulSoup）
             # ...
-            
+
             return posts
         except Exception as e:
-            logger.error(f'Error: {str(e)}')
+            print(f'Error: {str(e)}')
             return []
-    
-    def extract_media(self, element):
-        """提取媒体"""
-        # 自定义媒体提取逻辑
-        pass
 ```
 
-#### 步骤 2: 在引擎中注册
+#### 步骤 2: 提取可测的纯逻辑
 
-在 `crawler/app/engine.py` 中:
-
-```python
-from app.spiders.custom_crawler import CustomForumCrawler
-
-class CrawlerEngine:
-    def get_crawler(self, crawler_type):
-        if crawler_type == 'custom':
-            return CustomForumCrawler
-        # 其他爬虫类型...
-```
+内容提取、`<br>` 转换等纯函数应保持独立、无 I/O，以便 pytest 直接测试
+（整改计划 P1-2 要求先补测试再扩展，见 `docs/reports/architecture-remediation-plan-2026-09-06.md`）。
 
 ---
 
@@ -305,10 +286,12 @@ router.post('/protected', authenticate, controller.action);
 
 ### 添加日志记录
 
-在爬虫中使用提供的日志系统:
+爬虫使用 print/stdout 输出日志（由后端子进程捕获），如需结构化日志可引入标准库 logging：
 
 ```python
-from app.logger import logger
+import logging
+
+logger = logging.getLogger(__name__)
 
 logger.info('操作信息')
 logger.warning('警告信息')
@@ -419,7 +402,7 @@ python -m venv venv
 pip install -r requirements.txt
 
 # 运行爬虫
-python -m app.engine
+python crawl.py
 ```
 
 ### 前端

@@ -1,5 +1,27 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.1.0 - 架构整改（P0 止血 / P1 测试基建 / P2 轻度分层）
+**发布日期**: 2026-09-06
+**状态**: ✅ 已完成
+**报告**: `docs/reports/architecture-review-2026-09-06.md` / `docs/reports/architecture-remediation-plan-2026-09-06.md`
+
+### P0 止血
+- 爬虫单一入口：归档 `crawler/app/` 双实现至 `docs/archive/crawler_app_parallel_impl/`，仅保留 `crawler/crawl.py`
+- 死代码清理：删除 `backend/src/services/imageDownloader.js`（保留 `crawler/image_downloader.py`）；移除未使用依赖 joi/multer/sharp/axios
+- 安全修复：`updateTask` 增加字段白名单防批量赋值；`catchAsync` 补 return 修复错误传播
+
+### P1 测试基建（TDD）
+- 后端 Jest：31 用例全绿（authService / authMiddleware / taskController）
+- 爬虫 Pytest：52 用例全绿；纯逻辑下沉至 `crawler/lib/text_utils.py`、`crawler/lib/url_utils.py`
+- 集成测试收敛：合并 `test_permissions_simple.sh` 至 `test_admin_permissions.sh`，更新 `tests/README.md`
+
+### P2 轻度分层（不建四层）
+- 新增 `backend/src/services/taskService.js`：角色可见性过滤、创建校验与默认命名、更新白名单、start/pause/resume 状态机与归属检查全部下沉
+- `taskController.js` 瘦身为「参数读取 → 调 service → 组装响应」，业务规则零残留（原 31 用例零修改回归通过）
+- 新增统一响应工具 `backend/src/utils/respond.js`（sendSuccess），taskController 已接入，其余 controller 增量采纳
+
+---
+
 ## 版本 2.0.0 - 图片下载系统
 **发布日期**: 2024 年 1 月  
 **状态**: ✅ 生产就绪
@@ -353,6 +375,7 @@ media: [
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| 2.1.0 | 2026-09-06 | 🏗️ 架构整改：P0 止血 / P1 测试基建（jest 31 + pytest 52）/ P2 轻度分层 |
 | 2.0.0 | 2024-01 | ✨ 图片下载系统实现 |
 | 1.0.0 | 2024-01 | 🎉 项目初版本 |
 

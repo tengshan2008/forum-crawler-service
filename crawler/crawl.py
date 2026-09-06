@@ -18,7 +18,18 @@ from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
 import re
 import logging
-import hashlib
+
+# 导入纯函数库（可被 pytest 直接测试，见 crawler/tests/）
+from lib.text_utils import calculate_content_hash, extract_text_content, is_garbage_content
+from lib.url_utils import (
+    build_pagination_url,
+    build_section_pagination_url,
+    extract_meta_refresh_url,
+    extract_page_from_url,
+    extract_page_numbers,
+    extract_tid_from_url,
+    has_next_page,
+)
 
 # 导入 MongoDB 客户端
 from pymongo import MongoClient
@@ -110,25 +121,8 @@ class ForumCrawler:
             traceback.print_exc()
     
     def _calculate_content_hash(self, content):
-        """计算内容的 MD5 哈希值用于去重
-        
-        Args:
-            content: 帖子内容字符串
-            
-        Returns:
-            16位十六进制哈希值
-        """
-        try:
-            # 规范化内容：去除前后空白，规范化换行
-            normalized_content = content.strip()
-            normalized_content = re.sub(r'\s+', ' ', normalized_content)
-            
-            # 计算 MD5 哈希
-            content_hash = hashlib.md5(normalized_content.encode('utf-8')).hexdigest()
-            return content_hash
-        except Exception as e:
-            print(f"⚠ 计算内容哈希失败: {e}", file=sys.stderr, flush=True)
-            return None
+        """计算内容的 MD5 哈希值用于去重（实现见 lib/text_utils.calculate_content_hash）"""
+        return calculate_content_hash(content)
     
     def _extract_forum_last_post_time(self, html):
         """从论坛列表页面的一条记录中提取最后发表时间
@@ -301,32 +295,14 @@ class ForumCrawler:
                     # 进一步检查meta refresh或其他转向机制
                     # t66y的read.php?tid= 页面使用 meta refresh 来转向到实际的htm_data页面
                     try:
-                        soup = BeautifulSoup(response.text, 'html.parser')
-                        
-                        # 检查 meta http-equiv="refresh" 标签
-                        meta_refresh = soup.find('meta', attrs={'http-equiv': 'refresh'})
-                        if meta_refresh and 'content' in meta_refresh.attrs:
-                            # 提取URL，格式通常是: "2;url=......"
-                            content = meta_refresh['content']
-                            if 'url=' in content:
-                                redirect_url = content.split('url=', 1)[1].strip().rstrip(';')
-                                # 构建完整URL
-                                meta_final_url = urljoin(final_url, redirect_url)
-                                if meta_final_url != final_url:
-                                    final_url = meta_final_url
-                                    print(f"✓ 成功获取页面（已跟踪meta转向）: {url} → {final_url}", flush=True)
-                                else:
-                                    print(f"✓ 成功获取页面: {url}", flush=True)
-                            else:
-                                if final_url != url:
-                                    print(f"✓ 成功获取页面（已跟踪重定向）: {url} → {final_url}", flush=True)
-                                else:
-                                    print(f"✓ 成功获取页面: {url}", flush=True)
+                        meta_final_url = extract_meta_refresh_url(response.text, final_url)
+                        if meta_final_url and meta_final_url != final_url:
+                            final_url = meta_final_url
+                            print(f"✓ 成功获取页面（已跟踪meta转向）: {url} → {final_url}", flush=True)
+                        elif final_url != url:
+                            print(f"✓ 成功获取页面（已跟踪重定向）: {url} → {final_url}", flush=True)
                         else:
-                            if final_url != url:
-                                print(f"✓ 成功获取页面（已跟踪重定向）: {url} → {final_url}", flush=True)
-                            else:
-                                print(f"✓ 成功获取页面: {url}", flush=True)
+                            print(f"✓ 成功获取页面: {url}", flush=True)
                     except Exception as parse_error:
                         # 如果解析失败，继续使用HTTP重定向的URL
                         if final_url != url:
@@ -358,162 +334,25 @@ class ForumCrawler:
         return None
     
     def extract_page_numbers(self, html, max_allowed_pages=1000):
-        """从HTML中提取总页数 - 带最大页数限制"""
-        try:
-            soup = BeautifulSoup(html, 'html.parser')
-            page_numbers = set()
-            
-            # 1. 查找分页导航区域内的链接（更精确）
-            pagination_divs = soup.find_all(['div', 'ul', 'ol'], class_=re.compile(r'(page|pagenav|pagination|pages)', re.I))
-            
-            for pagination in pagination_divs:
-                links = pagination.find_all('a')
-                for link in links:
-                    href = link.get('href', '')
-                    match = re.search(r'page=(\d+)', href)
-                    if match:
-                        page_numbers.add(int(match.group(1)))
-            
-            # 2. 如果分页导航区域没找到，再尝试查找所有链接（兼容性）
-            if not page_numbers:
-                all_links = soup.find_all('a')
-                for link in all_links:
-                    href = link.get('href', '')
-                    match = re.search(r'page=(\d+)', href)
-                    if match:
-                        page_numbers.add(int(match.group(1)))
-            
-            if page_numbers:
-                max_page = max(page_numbers)
-                # 3. 添加最大页数限制，避免采集过多页数
-                return min(max_page, max_allowed_pages)
-            return 1
-        except Exception as e:
-            print(f"⚠ 提取页码失败: {e}", file=sys.stderr, flush=True)
-            return 1
-    
+        """从HTML中提取总页数 - 带最大页数限制（实现见 lib/url_utils）"""
+        return extract_page_numbers(html, max_allowed_pages)
+
     def has_next_page(self, html, current_page):
-        """检查当前页是否有下一页链接（用于逐页采集）"""
-        try:
-            soup = BeautifulSoup(html, 'html.parser')
-            next_page = current_page + 1
-            
-            # 查找所有可能的下一页链接
-            all_links = soup.find_all('a')
-            for link in all_links:
-                href = link.get('href', '')
-                # 检查是否存在指向下一页的链接
-                match = re.search(r'page=(\d+)', href)
-                if match and int(match.group(1)) == next_page:
-                    return True
-            
-            return False
-        except Exception as e:
-            print(f"⚠ 检查下一页失败: {e}", file=sys.stderr, flush=True)
-            return False
-    
+        """检查当前页是否有下一页链接（实现见 lib/url_utils）"""
+        return has_next_page(html, current_page)
+
     def extract_tid_from_url(self, url):
-        """从URL中提取 thread ID"""
-        try:
-            match = re.search(r'tid=(\d+)', url)
-            if match:
-                return match.group(1)
-            # 也尝试从 htm_data 路径提取
-            match = re.search(r'htm_data/\d+/\d+/(\d+)\.html', url)
-            if match:
-                return match.group(1)
-            return None
-        except Exception as e:
-            print(f"⚠ 提取tid失败: {e}", file=sys.stderr, flush=True)
-            return None
-    
+        """从URL中提取 thread ID（实现见 lib/url_utils）"""
+        return extract_tid_from_url(url)
+
     def build_pagination_url(self, original_url, page_num):
-        """为给定页码构建URL"""
-        try:
-            tid = self.extract_tid_from_url(original_url)
-            if tid:
-                # 使用标准分页URL格式
-                return f"https://t66y.com/read.php?tid={tid}&page={page_num}"
-            return None
-        except Exception as e:
-            print(f"⚠ 构建分页URL失败: {e}", file=sys.stderr, flush=True)
-            return None
+        """为给定页码构建URL（实现见 lib/url_utils）"""
+        return build_pagination_url(original_url, page_num)
     
     def _is_garbage_content(self, html):
-        """检测内容是否为不可解析的乱码
-        
-        当网站返回某种加密或防御机制导致的乱码内容时，需要识别出来进行重试。
-        典型的乱码特征：包含大量不可打印字符、中文字符极少、缺乏HTML结构。
-        
-        Args:
-            html: 页面HTML内容
-            
-        Returns:
-            bool: True 表示是乱码内容，需要重试
-        """
-        if not html:
-            return True
-        
-        try:
-            # 检查内容长度，过短可能是乱码
-            if len(html) < 100:
-                print(f"⚠ 检测到内容过短 ({len(html)} 字符)，可能是乱码", flush=True)
-                return True
-            
-            # 取样分析（分析前10000个字符，增加采样范围）
-            sample = html[:10000]
-            
-            # 1. 关键：检查是否存在常见的HTML标签
-            # 正常的网页不可能连一个常用标签都没有
-            common_tags = ['<html', '<body', '<head', '<div', '<span', '<table', '<script', '<meta', '<link', '<title']
-            tags_found = sum(1 for tag in common_tags if tag in sample.lower())
-            
-            if tags_found == 0:
-                print(f"⚠ 未检测到任何常见HTML标签，判定为乱码", flush=True)
-                # 打印开头部分以便调试
-                safe_preview = ''.join(c if c.isprintable() else '?' for c in sample[:200])
-                print(f"  内容预览: {safe_preview}...", flush=True)
-                return True
-            
-            # 2. 检查 Unicode 替换字符 ()
-            # requests在解码失败时可能会产生大量替换字符
-            replacement_char_count = sample.count('\ufffd')
-            if replacement_char_count > 50:  # 阈值
-                print(f"⚠ 检测到大量替换字符 ({replacement_char_count} 个)，判定为乱码", flush=True)
-                return True
-            
-            # 3. 统计可打印ASCII字符（排除控制字符）
-            printable_chars = sum(1 for c in sample if c.isprintable() or c in '\n\r\t')
-            printable_ratio = printable_chars / len(sample) if sample else 0
-            
-            # 4. 统计中文字符数量
-            chinese_chars = sum(1 for c in sample if '\u4e00' <= c <= '\u9fff')
-            
-            # 5. 统计HTML标签数量（单纯的 < 和 >）
-            html_angle_brackets = sample.count('<') + sample.count('>')
-            
-            # 判断逻辑：
-            # A. 可打印字符比例极低
-            if printable_ratio < 0.6:
-                print(f"⚠ 可打印字符比例过低 ({printable_ratio:.1%})，判定为乱码", flush=True)
-                return True
-                
-            # B. 几乎没有HTML结构符 且 中文也很少
-            if html_angle_brackets < 10 and chinese_chars < 5:
-                print(f"⚠ 缺乏HTML结构 (<>数量: {html_angle_brackets}) 且中文字符极少 ({chinese_chars})，判定为乱码", flush=True)
-                return True
-                
-            # C. 看起来像文本但没有中文也没有HTML结构（对于中文论坛来说是不正常的）
-            if printable_ratio < 0.8 and chinese_chars < 10 and html_angle_brackets < 20:
-                print(f"⚠ 内容缺乏特征 ({printable_ratio:.1%} 可打印, {chinese_chars} 中文, {html_angle_brackets} 括号)，判定为乱码", flush=True)
-                return True
-            
-            return False
-            
-        except Exception as e:
-            print(f"⚠ 检测内容时出错: {e}", file=sys.stderr, flush=True)
-            return False  # 出错时不判定为乱码，继续正常处理
-    
+        """检测内容是否为不可解析的乱码（实现见 lib/text_utils.is_garbage_content）"""
+        return is_garbage_content(html)
+
     def extract_post_links_from_section(self, html):
         """从版块页面中提取所有帖子链接（优先提取h3中的帖子入口链接）"""
         try:
@@ -646,38 +485,12 @@ class ForumCrawler:
         return None
     
     def build_section_pagination_url(self, section_url, page_num):
-        """为版块构建分页URL"""
-        try:
-            # 检查是否已有page参数
-            if 'page=' in section_url:
-                # 替换现有page参数
-                return re.sub(r'page=\d+', f'page={page_num}', section_url)
-            elif '?' in section_url:
-                # 已有其他参数，添加page参数
-                return f"{section_url}&page={page_num}"
-            else:
-                # 无参数，添加page参数
-                return f"{section_url}?page={page_num}"
-        except Exception as e:
-            print(f"⚠ 构建版块分页URL失败: {e}", file=sys.stderr, flush=True)
-            return section_url
-    
+        """为版块构建分页URL（实现见 lib/url_utils）"""
+        return build_section_pagination_url(section_url, page_num)
+
     def extract_page_from_url(self, url):
-        """从URL中提取page参数值
-        
-        Returns:
-            int: 页码，如果没有page参数则返回None
-        """
-        try:
-            # 查找 page=数字 模式
-            match = re.search(r'page=(\d+)', url)
-            if match:
-                page_num = int(match.group(1))
-                return page_num
-            return None
-        except Exception as e:
-            print(f"⚠ 提取URL中的page参数失败: {e}", file=sys.stderr, flush=True)
-            return None
+        """从URL中提取page参数值（实现见 lib/url_utils）"""
+        return extract_page_from_url(url)
     
     def parse_t66y_post(self, url, html, task_type='image'):
         """解析 t66y 论坛帖子 - 提取所有页面和楼层的内容"""
@@ -908,16 +721,10 @@ class ForumCrawler:
             # 提取内容
             if content_divs:
                 for floor_idx, content_div in enumerate(content_divs, 1):
-                    # 将所有 <br> 标签替换为换行符
-                    for br in content_div.find_all('br'):
-                        br.replace_with('\n')
-                    
-                    # 提取文本内容 - 对于小说类型保留换行符
-                    text_content = content_div.get_text(strip=False)
+                    # 提取文本内容（<br>→换行、段落规范化，见 lib/text_utils）
+                    text_content = extract_text_content(content_div)
+
                     if text_content:
-                        # 清理文本内容但保留换行符
-                        text_content = re.sub(r'\n\s*\n', '\n\n', text_content)  # 规范化段落间距
-                        text_content = text_content.strip()  # 只移除首尾空白
                         
                         # 过滤掉过短的内容（可能是导航等垃圾内容）
                         if len(text_content) > 50:

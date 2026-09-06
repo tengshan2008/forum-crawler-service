@@ -118,7 +118,6 @@ forum-crawler-service/
 │   └── .env.example
 │
 ├── crawler/                    # Python 爬虫引擎
-│   ├── app/
 │   │   ├── spiders/           # 爬虫实现
 │   │   ├── pipelines/         # 数据处理管道
 │   │   ├── middlewares/       # 爬虫中间件
@@ -144,7 +143,6 @@ forum-crawler-service/
 │
 ├── docker/                     # Docker 配置
 │   ├── Dockerfile.backend     # 后端镜像
-│   ├── Dockerfile.crawler     # 爬虫镜像
 │   ├── Dockerfile.frontend    # 前端镜像
 │   ├── docker-compose.yml     # 容器编排
 │   └── nginx.conf             # Nginx 配置
@@ -317,7 +315,7 @@ API 验证 → 存储到 MongoDB
 
 ### 添加新爬虫
 
-1. 在 `crawler/app/spiders/` 创建新文件
+1. 在 `crawler/crawl.py` 的 `ForumCrawler` 类中添加站点适配方法
 2. 继承 `BaseCrawler` 类
 3. 实现 `extract_posts()` 方法
 4. 在引擎中注册

@@ -131,6 +131,17 @@ if echo "$USER1_TASKS" | grep -q "$TASK2_ID"; then
 else
   echo -e "${GREEN}✓ 用户 1 正确看不到用户 2 的任务${NC}"
 fi
+
+# 6.5 用户 2 可以看到自己的任务
+USER2_TASKS=$(curl -s -X GET http://localhost:5000/api/tasks \
+  -H "Authorization: Bearer $TOKEN2")
+
+if echo "$USER2_TASKS" | grep -q "$TASK2_ID"; then
+  echo -e "${GREEN}✓ 用户 2 可以看到自己的任务${NC}"
+else
+  echo -e "${RED}✗ 用户 2 看不到自己的任务${NC}"
+  exit 1
+fi
 echo ""
 
 # 7. 创建管理员账户（通过升级普通用户）

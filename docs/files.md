@@ -84,7 +84,6 @@ frontend/
 ```
 docker/
 ├── Dockerfile.backend                        # 后端容器镜像配置
-├── Dockerfile.crawler                        # 爬虫容器镜像配置
 ├── Dockerfile.frontend                       # 前端容器镜像配置
 ├── docker-compose.yml                        # Docker Compose 编排配置
 └── nginx.conf                                # Nginx 反向代理配置
@@ -153,10 +152,10 @@ docs/
    - 路由注册
    - 中间件配置
 
-2. **爬虫**: `crawler/app/engine.py`
-   - 爬虫任务执行
-   - 数据管道处理
-   - 错误处理
+2. **爬虫**: `crawler/crawl.py`
+   - 爬虫任务执行（由 `backend/src/services/crawlerExecutor.js` 子进程调用）
+   - 数据提取与去重、内容哈希
+   - 图片下载（`crawler/image_downloader.py`）
 
 3. **前端**: `frontend/src/index.js` 和 `App.js`
    - React 应用初始化
@@ -256,7 +255,7 @@ App.js
 
 1. 修改 `.env.example` 为 `.env`
 2. 安装依赖: `npm install` / `pip install`
-3. 启动服务: `npm start` / `python -m app.engine`
+3. 启动服务: `npm start`（爬虫由后端经队列自动调度，也可单独运行 `python crawl.py`）
 4. 访问应用
 
 ### Docker 部署

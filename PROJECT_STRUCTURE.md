@@ -17,10 +17,9 @@ forum-crawler-service/
 │   └── package.json             # 依赖配置
 ├── 
 ├── 📂 crawler/                  # 爬虫模块（Python）
-│   ├── crawl.py                 # 主爬虫脚本
+│   ├── crawl.py                 # 主爬虫脚本（唯一入口，后端经队列调度）
 │   ├── image_downloader.py      # 图片下载模块
 │   ├── migrate_content_hash.py  # 内容哈希迁移脚本
-│   ├── app/                     # 爬虫应用
 │   └── requirements.txt          # Python依赖
 ├── 
 ├── 📂 docker/                   # Docker配置
