@@ -18,6 +18,8 @@ forum-crawler-service/
 ├── 
 ├── 📂 crawler/                  # 爬虫模块（Python）
 │   ├── crawl.py                 # 主爬虫脚本
+│   ├── image_downloader.py      # 图片下载模块
+│   ├── migrate_content_hash.py  # 内容哈希迁移脚本
 │   ├── app/                     # 爬虫应用
 │   └── requirements.txt          # Python依赖
 ├── 
@@ -25,27 +27,32 @@ forum-crawler-service/
 │   ├── Dockerfile.*             # 各服务Dockerfile
 │   └── docker-compose.*         # Docker编排文件
 ├── 
+├── 📂 dev_env/                  # 本地开发环境
+│   └── Dockerfile
+├── 
 ├── 📂 docs/                     # 📚 文档（已整理）
 │   ├── guides/                  # 部署和集成指南
 │   ├── features/                # 功能实现文档
 │   ├── fixes/                   # BUG修复总结
 │   ├── archive/                 # 历史文档存档
+│   ├── technical/               # 技术文档
+│   ├── reports/                 # 项目报告
+│   ├── product/                 # 产品文档
 │   └── README.md                # 文档导航
 ├── 
 ├── 📂 scripts/                  # 🔧 脚本（已整理）
 │   ├── setup/                   # 安装初始化脚本
 │   ├── deploy/                  # 部署脚本
 │   ├── admin/                   # 管理员工具脚本
-│   ├── utils/                   # 通用工具脚本
 │   └── README.md                # 脚本导航
 ├── 
 ├── 📂 tests/                    # 🧪 测试（已整理）
 │   ├── integration/             # 集成测试脚本
 │   ├── data/                    # 数据处理脚本
-│   ├── unit/                    # 单元测试（预留）
 │   └── README.md                # 测试导航
 ├── 
 └── 📂 analysis/                 # 🔍 分析工具
+    ├── analyze_section_page.py  # 版块分析工具
     └── README.md                # 分析工具说明
 ```
 
@@ -130,11 +137,10 @@ python analysis/analyze_section_page.py [URL]
 
 - **docs/** - 所有文档文件（.md, .txt）
 - **scripts/** - 所有脚本文件（.sh, .bat）
-  - 按功能分类到 setup/, deploy/, admin/, utils/ 子目录
+  - 按功能分类到 setup/, deploy/, admin/ 子目录
 - **tests/** - 所有测试脚本
   - integration/ - 集成测试
   - data/ - 数据处理脚本
-  - unit/ - 单元测试（预留）
 - **analysis/** - 分析和诊断工具
 - **backend/**, **frontend/**, **crawler/** - 业务代码
 - **docker/** - Docker配置文件

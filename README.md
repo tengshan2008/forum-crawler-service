@@ -27,12 +27,12 @@
 - 💻 **现代Web UI**：使用React 18 + Ant Design 5构建的响应式前端
 - 👀 **内容预览**：支持文本预览、图片网格展示、大图查看器
 - 📈 **实时进度追踪**：进度条、统计信息、错误日志面板
-- 🏗️ **灵活布局**：图片卡片水平垂直居中显示，网格视图自适应
+- 🏗️ **灵活布局**：图片卡片水平垂直居中显示，网格/瀑布流视图自适应
 
 🔧 **后端服务**
 - ⚡ **异步任务队列**：基于Redis的Bull队列，支持并发爬虫任务
 - 🗄️ **数据持久化**：MongoDB存储，完整的数据模型和索引
-- 🔄 **实时进度推送**：通过Socket.io或轮询实时更新任务进度
+- 🔄 **实时进度更新**：通过轮询机制实时获取任务进度
 - 🖼️ **智能图片处理**：自动下载、本地存储、URL去重、智能过滤
 
 🐳 **生产就绪**
@@ -62,6 +62,8 @@ forum-crawler-service/
 ├── crawler/                      # Python 爬虫服务
 │   ├── app/                     # 爬虫应用
 │   ├── crawl.py                 # 主爬虫脚本
+│   ├── image_downloader.py      # 图片下载模块
+│   ├── migrate_content_hash.py  # 内容哈希迁移脚本
 │   ├── requirements.txt
 │   └── ...                      # 其他爬虫工具
 │
@@ -70,24 +72,27 @@ forum-crawler-service/
 │   │   ├── pages/               # 页面组件
 │   │   ├── components/          # 通用组件
 │   │   ├── services/            # API 服务
-│   │   ├── styles/              # 样式文件
-│   │   ├── utils/               # 工具函数
 │   │   └── App.js
 │   ├── public/                  # 静态资源
 │   └── package.json
 │
 ├── docker/                       # Docker 配置
 │   ├── Dockerfile.backend       # 后端镜像
+│   ├── Dockerfile.backend.dev   # 后端开发镜像
 │   ├── Dockerfile.crawler       # 爬虫镜像
 │   ├── Dockerfile.frontend      # 前端镜像
+│   ├── Dockerfile.frontend.dev  # 前端开发镜像
 │   ├── docker-compose.yml       # 生产配置
 │   ├── docker-compose.dev.yml   # 开发配置
 │   └── nginx.conf               # Nginx配置
 │
+├── dev_env/                      # 本地开发环境
+│   └── Dockerfile
+│
 ├── docs/                         # 📚 完善的文档
 │   ├── guides/                  # 部署和集成指南
 │   ├── features/                # 功能实现文档
-│   ├── fixes/                   # BUG修复总结  
+│   ├── fixes/                   # BUG修复总结
 │   ├── archive/                 # 历史文档存档
 │   ├── technical/               # 技术文档
 │   ├── reports/                 # 项目报告
@@ -95,6 +100,7 @@ forum-crawler-service/
 │   ├── api.md                   # API文档 ⭐
 │   ├── development.md           # 开发指南 ⭐
 │   ├── deployment.md            # 部署说明 ⭐
+│   ├── quickstart.md            # 快速开始指南
 │   ├── CHANGELOG.md             # 变更日志
 │   └── README.md                # 文档导航
 │
@@ -105,7 +111,7 @@ forum-crawler-service/
 │   └── README.md                # 脚本导航
 │
 ├── tests/                        # 🧪 测试脚本
-│   ├── integration/             # 集成测试脚本 (12个)
+│   ├── integration/             # 集成测试脚本 (14个)
 │   ├── data/                    # 数据处理脚本
 │   └── README.md                # 测试导航
 │
@@ -141,11 +147,14 @@ React Frontend  Express Backend  Python Crawler
 - **框架**: Express.js
 - **数据库**: MongoDB
 - **缓存**: Redis
+- **任务队列**: Bull
 - **认证**: JWT
+- **图片处理**: Sharp
+- **定时任务**: node-cron
 
 ### 爬虫
 - **语言**: Python 3.11+
-- **库**: BeautifulSoup4, Requests, Selenium
+- **库**: BeautifulSoup4, Requests, Selenium, Scrapy
 - **数据库**: MongoDB
 - **缓存**: Redis
 
@@ -154,6 +163,8 @@ React Frontend  Express Backend  Python Crawler
 - **UI 库**: Ant Design 5
 - **路由**: React Router v6
 - **HTTP 客户端**: Axios
+- **图表**: Recharts
+- **瀑布流**: react-masonry-css
 - **时间处理**: dayjs
 
 ### 部署
@@ -206,7 +217,6 @@ docker-compose ps
 #### 4️⃣ 访问各服务
 - **前端 Web UI**: http://localhost:3000
 - **后端 API**: http://localhost:5000
-- **API 文档**: http://localhost:5000/api/docs
 - **MongoDB**: localhost:27017
 - **Redis**: localhost:6379
 
@@ -294,28 +304,33 @@ curl "http://localhost:5000/api/posts?taskId={taskId}&page=1&limit=20"
 
 所有服务均支持通过 `.env` 文件配置。详见各项目目录的 `.env.example` 文件：
 
-- `backend/.env.example` - 后端配置（MongoDB、Redis、端口等）
+- `backend/.env.example` - 后端配置（MongoDB、Redis、JWT、端口等）
 - `crawler/.env.example` - 爬虫配置（请求超时、重试次数等）
-- `frontend/.env.example` - 前端配置（API基础URL、日志级别等）
+- `frontend/.env.example` - 前端配置（API基础URL、超时等）
 
 ### 常见环境变量
 
 ```bash
-# 后端
-MONGO_URI=mongodb://localhost:27017/forum-crawler
-REDIS_URL=redis://localhost:6379
-JWT_SECRET=your-secret-key
+# 后端 (backend/.env.example)
 PORT=5000
+MONGODB_URI=mongodb://localhost:27017/forum-crawler
+REDIS_HOST=localhost
+REDIS_PORT=6379
+JWT_SECRET=your-secret-key-here
+JWT_EXPIRATION=24h
+CORS_ORIGIN=http://localhost:3000
 
-# 爬虫
-MONGO_URI=mongodb://localhost:27017/forum-crawler
-REDIS_URL=redis://localhost:6379
-REQUEST_TIMEOUT=30
-MAX_RETRIES=3
+# 爬虫 (crawler/.env.example)
+MONGODB_URI=mongodb://localhost:27017/forum-crawler
+REDIS_HOST=localhost
+REDIS_PORT=6379
+CRAWLER_TIMEOUT=600000
+CRAWLER_RETRY_ATTEMPTS=3
+DOWNLOAD_DELAY=1
 
-# 前端
-REACT_APP_API_BASE_URL=http://localhost:5000
-REACT_APP_ENV=development
+# 前端 (frontend/.env.example)
+REACT_APP_API_BASE_URL=http://localhost:5000/api
+REACT_APP_API_TIMEOUT=30000
 ```
 
 ## 项目文档
@@ -326,6 +341,7 @@ REACT_APP_ENV=development
 |------|------|
 | [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) | **项目整体结构说明** ⭐ |
 | [docs/README.md](docs/README.md) | 文档导航和索引 |
+| [docs/quickstart.md](docs/quickstart.md) | 快速开始指南 |
 | [docs/api.md](docs/api.md) | API接口文档 |
 | [docs/development.md](docs/development.md) | 开发指南 |
 | [docs/deployment.md](docs/deployment.md) | 部署说明 |
@@ -353,7 +369,11 @@ REACT_APP_ENV=development
 
 ### 如何创建管理员用户？
 ```bash
+# Docker 环境（推荐）
 ./scripts/admin/create-admin-docker.sh
+
+# 本地环境
+cd backend && npm run create:admin
 ```
 
 ### 爬虫任务执行很慢？
@@ -367,17 +387,17 @@ REACT_APP_ENV=development
 - 检查网络连接和代理设置
 
 ### 如何导出内容？
-目前版本支持在前端直接复制文本和下载文本文件。完整的导出功能（EPUB、PDF等）计划在v2.2+版本实现。
+目前版本支持在前端直接复制文本和下载文本文件。完整的导出功能（EPUB、PDF等）计划在后续版本实现。
 
 ### 支持多用户吗？
-目前版本暂不支持多用户认证。权限隔离和用户认证系统规划在第二阶段（2026年3月-6月）实现。
+支持。系统基于 JWT 实现用户认证，并提供管理员/普通用户角色权限隔离（系统管理、用户管理、审计日志等仅管理员可用）。
 
 ### 支持哪些论坛？
-当前完全支持 **t66y论坛**。其他论坛支持计划在第三阶段实现。
+当前完全支持 **t66y论坛**。其他论坛支持计划在后续版本实现。
 
 ## 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+MIT License
 
 ## 支持与反馈
 
@@ -389,5 +409,5 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 ## 相关链接
 
 - [GitHub 仓库](https://github.com/tengshan2008/forum-crawler-service)
-- [项目进度](PROJECT_STRUCTURE.md)
+- [项目结构](PROJECT_STRUCTURE.md)
 - [开发路线图](docs/product/PRD.md#6-开发路线图)
