@@ -16,7 +16,7 @@ const getApiBaseUrl = () => {
 };
 
 const API_BASE_URL = getApiBaseUrl();
-const API_TIMEOUT = import.meta.env.VITE_API_TIMEOUT || 30000;
+const API_TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT) || 30000;
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -126,6 +126,6 @@ export const browseApi = {
 // User API
 export const updateProfile = (data) => api.put('/users/profile', data);
 
-export const changePassword = (data) => api.post('/users/change-password', data);
+export const changePassword = (data) => api.put('/auth/password', data);
 
 export default api;

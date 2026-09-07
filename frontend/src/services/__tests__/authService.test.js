@@ -88,14 +88,15 @@ describe('authService 资料与密码', () => {
     expect(result).toEqual({ data: updated });
   });
 
-  it('changePassword 调用修改密码端点', async () => {
+  it('changePassword 调用修改密码端点 PUT /auth/password 并携带确认密码', async () => {
     stubClient.put.mockResolvedValue({ data: { success: true } });
 
-    await authService.changePassword('old', 'new');
+    await authService.changePassword('old', 'NewPass123', 'NewPass123');
 
-    expect(stubClient.put).toHaveBeenCalledWith('/auth/change-password', {
+    expect(stubClient.put).toHaveBeenCalledWith('/auth/password', {
       oldPassword: 'old',
-      newPassword: 'new',
+      newPassword: 'NewPass123',
+      confirmPassword: 'NewPass123',
     });
   });
 });

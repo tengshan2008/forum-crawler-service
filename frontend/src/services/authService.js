@@ -62,9 +62,9 @@ export const updateProfile = async (data) => {
   return response.data;
 };
 
-// 修改密码
-export const changePassword = async (oldPassword, newPassword) => {
-  const response = await apiClient.put('/auth/change-password', { oldPassword, newPassword });
+// 修改密码（后端校验 newPassword ≥8 位且含大小写字母和数字）
+export const changePassword = async (oldPassword, newPassword, confirmPassword) => {
+  const response = await apiClient.put('/auth/password', { oldPassword, newPassword, confirmPassword });
   return response.data;
 };
 

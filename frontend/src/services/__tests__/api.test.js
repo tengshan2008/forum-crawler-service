@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import api, { taskApi } from '../api';
+import api, { taskApi, changePassword } from '../api';
 
 // 用自定义 adapter 拦截真实 axios 实例，避免真实网络请求
 let capturedConfig;
@@ -77,5 +77,21 @@ describe('api.js 响应拦截器', () => {
     expect(localStorage.getItem('accessToken')).toBeNull();
     expect(localStorage.getItem('user')).toBeNull();
     // jsdom 不支持真实导航，location.href 赋值结果无法断言，仅验证清理逻辑
+  });
+});
+
+describe('api.js 用户接口', () => {
+  it('changePassword 走 PUT /auth/password（与后端真实端点一致）', async () => {
+    localStorage.setItem('accessToken', 'tok-123');
+
+    await changePassword({ oldPassword: 'old', newPassword: 'NewPass123', confirmPassword: 'NewPass123' });
+
+    expect(capturedConfig.method).toBe('put');
+    expect(capturedConfig.url).toBe('/auth/password');
+    expect(JSON.parse(capturedConfig.data)).toEqual({
+      oldPassword: 'old',
+      newPassword: 'NewPass123',
+      confirmPassword: 'NewPass123',
+    });
   });
 });

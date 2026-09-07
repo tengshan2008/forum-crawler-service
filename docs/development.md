@@ -365,14 +365,29 @@ describe('TaskList', () => {
 
 ## 部署前清单
 
-- [ ] 更新所有 `.env.example` 文件
+- [ ] 更新所有 `.env.example` 文件（后端 `.env.example`、前端 `frontend/.env.example`，Vite 变量前缀为 `VITE_`）
 - [ ] 删除敏感信息（密钥、密码等）
 - [ ] 运行 linter 检查代码质量
-- [ ] 编写/更新测试
-- [ ] 更新 API 文档
+- [ ] 编写/更新测试（后端 Jest、爬虫 Pytest、前端 Vitest 三套均须全绿）
+- [ ] 更新 API 文档（`docs/api.md`：新增端点、响应结构、错误码）
+- [ ] 文档同步：变更涉及的功能文档、`docs/files.md`（文件增删/移动）、部署文档一并更新
+- [ ] 在 `docs/CHANGELOG.md` 追加本次变更条目
 - [ ] 检查日志输出
 - [ ] 性能测试
 - [ ] 安全审计
+
+---
+
+## 变更完成验收清单（文档同步约定）
+
+为防止文档漂移重演，每个代码变更批次合并前须确认：
+
+1. **测试**：后端 `cd backend && npx jest`、爬虫 `.venv/bin/python -m pytest crawler/tests/`、前端 `cd frontend && npm test`（Vitest）三套全绿。
+2. **API 同步**：新增/修改端点后更新 `docs/api.md`（路径、方法、请求体、成功/错误响应结构）。
+3. **功能文档**：每主题仅保留一篇现行文档于 `docs/features/`；历史变体移入 `docs/archive/features/`，不得新建同主题变体文件。
+4. **文件清单**：文件增删或移动后同步 `docs/files.md` 与 `docs/index.md` 的链接。
+5. **部署配置**：Dockerfile / docker-compose / 环境变量变更后同步 `docs/deployment.md`。
+6. **CHANGELOG**：按版本追加条目，并在对应优化报告路线图勾选状态。
 
 ---
 
@@ -405,19 +420,16 @@ pip install -r requirements.txt
 python crawl.py
 ```
 
-### 前端
+### 前端（Vite）
 ```bash
-# 开发模式
-npm start
+# 开发模式（含 /api 代理，目标可用 VITE_PROXY_TARGET 覆盖）
+npm run dev
 
-# 生产构建
+# 生产构建（产物在 dist/）
 npm run build
 
-# 运行测试
+# 运行测试（Vitest）
 npm test
-
-# Eject (不可逆)
-npm run eject
 ```
 
 ### Docker

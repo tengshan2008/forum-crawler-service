@@ -66,13 +66,17 @@ const Settings = () => {
         setLoading(true);
         try {
           const response = await changePassword({
-            currentPassword: values.currentPassword,
+            oldPassword: values.currentPassword,
             newPassword: values.newPassword,
+            confirmPassword: values.confirmPassword,
           });
 
           if (response.data.success) {
             showMessage('success', '密码已更改，请重新登录');
             passwordForm.resetFields();
+            // 后端已清除刷新令牌，同步清理本地会话后跳转登录页
+            localStorage.removeItem('user');
+            localStorage.removeItem('accessToken');
             setTimeout(() => {
               window.location.href = '/login';
             }, 2000);
@@ -207,12 +211,13 @@ const Settings = () => {
                 name="newPassword"
                 rules={[
                   { required: true, message: '请输入新密码' },
-                  { min: 6, message: '密码至少6个字符' },
+                  { min: 8, message: '密码至少8个字符' },
+                  { pattern: /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/, message: '需包含大小写字母和数字' },
                 ]}
               >
                 <Input.Password
                   prefix={<LockOutlined />}
-                  placeholder="输入新密码（至少6个字符）"
+                  placeholder="输入新密码（至少8个字符，含大小写字母和数字）"
                 />
               </Form.Item>
 

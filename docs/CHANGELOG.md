@@ -1,5 +1,16 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.3.1 - 修复修改密码端到端 Bug
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+
+- 前端 `api.js` 的 `changePassword` 由 `POST /users/change-password` 修正为 `PUT /auth/password`（后端无 /users 路由，原路径 404）
+- 前端 `authService.js` 的 `changePassword` 由 `PUT /auth/change-password` 修正为 `PUT /auth/password`，签名补齐 `confirmPassword`（后端校验必需）
+- Settings 页面载荷键修正（`currentPassword` → `oldPassword`，补传 `confirmPassword`）；新密码表单校验对齐后端规则（≥8 位、含大小写字母和数字）
+- 密码修改成功后同步清理 localStorage 会话（user/accessToken）再跳转登录页，避免残留已失效令牌
+- 附带修复：`api.js` 对 `VITE_API_TIMEOUT` 做 `Number()` 数值化，修复既有 Vitest 超时用例因环境变量为字符串而断言失败的问题
+- 测试：Vitest 14 通过（更新 authService.changePassword 端点/载荷断言；api.test.js 新增 changePassword 端点用例）
+
 ## 版本 2.3.0 - P2 性能与体验（优化建议路线图）
 **发布日期**: 2026-09-07
 **状态**: ✅ 已完成
@@ -34,6 +45,19 @@
 ### F3 前端最小测试
 - 引入 Vitest（jsdom 环境），新增 13 个用例：api.js（baseURL 默认与 VITE_API_BASE_URL 覆盖、Bearer token 附加、logout 不带 token、401 清理本地认证）+ authService.js（login/logout 存储、损坏 user 数据自愈、isAuthenticated、updateProfile/changePassword 端点）
 - package.json scripts 改为 dev/build/preview/test（vitest run），移除 react-scripts、CRA eslintConfig 与 proxy 字段
+
+### D5 文档治理
+- `docs/features/` 24 篇收敛为 10 篇：content-hash / pagination / meta-redirect / keyboard-navigation / link-extraction / time-based-deduplication 六主题各保留一篇现行文档，14 篇同主题变体（quickref/quickstart/checklist/summary/comparison/deployment/improvement/quickguide/index/IMPLEMENTATION 等）移入 `docs/archive/features/`
+- `docs/product/PRD.md.backup` 与两篇 PRD 更新报告移入 `docs/archive/product/`，product/ 仅留现行 PRD.md
+- `docs/README.md` 目录结构同步（features 现行清单、product、archive 子目录说明）
+- `docs/development.md` 新增「变更完成验收清单（文档同步约定）」：改代码必须同步 api.md/features/files.md/deployment/CHANGELOG，功能文档同主题禁止新建变体；顺带修正前端命令（Vite：`npm run dev`/`npm test`，移除 CRA 的 `npm start`/`eject` 漂移内容）
+
+### D6 API 文档同步
+- 审计全部 5 个 controller：成功响应结构已统一为 `{success, data, pagination?, message?}`（sendSuccess 与同构手工写法一致），错误由全局 errorHandler 统一 `{success:false, message}`（dev 附 stack）；认证表单校验为例外遗留 `{errors:[]}` 结构
+- `docs/api.md` 重写基础信息：JWT Bearer 认证（原文档称「不需要认证」已严重漂移）、auth 接口 20次/15分钟/IP 限流 429、角色可见性、统一响应约定与完整状态码表（新增 401/403/429）
+- 补齐端点：认证组（register/login/refresh/logout/me/profile/password）、任务取消 `POST /tasks/:id/cancel`、任务日志 `GET /tasks/:id/logs`、队列统计 `GET /tasks/crawler/stats`（admin）、健康检查路径修正为 `GET /health`（原文档误写 /api/health）
+- 同步白名单约束：任务更新仅 TASK_UPDATE_FIELDS、帖子更新仅 POST_UPDATE_FIELDS；创建任务字段规则改为 crawlType + 条件必填 forumUrl/sectionUrl、name 可选自动命名
+- 发现既有前后端不一致（记入下一批）：后端修改密码端点为 `PUT /api/auth/password`，前端 api.js（POST /users/change-password）与 authService.js（PUT /auth/change-password）调用路径均过时，该功能端到端不可用
 
 ### 测试
 - 后端 Jest 94 → 101（cancelTask 3、getTaskLogs 3、updatePost 白名单 1）

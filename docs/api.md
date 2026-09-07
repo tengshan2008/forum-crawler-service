@@ -2,22 +2,28 @@
 
 ## 基础信息
 
-- **基础 URL**: `http://localhost:5000/api`
-- **认证方式**: 目前不需要认证（可选）
-- **响应格式**: JSON
+- **基础 URL**: `http://localhost:5000/api`（生产环境经前端 nginx 同源代理 `/api`）
+- **认证方式**: JWT Bearer Token。除 `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`GET /health` 外，所有接口均需在请求头携带 `Authorization: Bearer <accessToken>`
+- **限流**: 认证相关接口（register/login/refresh）按 IP 限流，每 15 分钟 20 次，超限返回 429
+- **响应格式**: JSON（统一成功/错误结构见下）
+- **角色**: 普通用户仅可访问本人数据；管理员接口（如 `GET /api/tasks/crawler/stats`、`/api/admin/*`）要求 `admin` 角色，越权返回 403
 
-## 响应格式
+## 统一响应约定
 
-所有 API 响应都遵循以下格式：
+所有 API 响应都遵循以下结构（后端由 `utils/respond.js` 的 `sendSuccess` 统一产出，未迁移的 controller 亦为同构手工写法）：
 
 ### 成功响应
 ```json
 {
   "success": true,
   "data": {},
-  "message": "操作成功"
+  "message": "操作成功（可选，仅在提供时出现）",
+  "pagination": { "total": 100, "page": 1, "limit": 10, "pages": 10 }
 }
 ```
+- `data`：主体数据（对象、数组或 `null`）
+- `pagination`：仅列表接口出现，与 `data` 平级
+- `message`：可选提示文案
 
 ### 错误响应
 ```json
@@ -26,6 +32,68 @@
   "message": "错误信息描述"
 }
 ```
+- 由全局错误中间件统一产出；`NODE_ENV=development` 时额外附带 `stack` 字段
+- **例外（历史遗留）**：认证接口的表单校验失败返回 `400` 与 `{ "errors": [ { "msg": "...", "param": "..." } ] }`（express-validator 结构，无 `success` 字段）
+
+### 常见状态码
+
+| 状态码 | 含义 | 典型场景 |
+|--------|------|----------|
+| 200 | 成功 | 请求成功 |
+| 201 | 创建成功 | 资源创建成功（注册、创建任务等） |
+| 400 | 请求错误 | 参数校验失败、非法状态转换（如 running 任务取消） |
+| 401 | 未认证 | 缺失/过期/无效 JWT |
+| 403 | 无权限 | 非所有者且非管理员访问他人资源 |
+| 404 | 未找到 | 资源不存在或无权可见（所有权约束下对他人资源返回 404） |
+| 429 | 请求过频 | 认证接口触发限流 |
+| 500 | 服务器错误 | 服务器内部错误 |
+
+---
+
+## 认证 API
+
+### 注册
+```
+POST /api/auth/register
+```
+请求体：`{ "email": "a@b.c", "username": "user", "password": "至少8位", "confirmPassword": "..." }`
+成功 `201`：`{ "success": true, "message": "注册成功", "data": { ... } }`
+限流：20 次 / 15 分钟 / IP。
+
+### 登录
+```
+POST /api/auth/login
+```
+请求体：`{ "email": "a@b.c", "password": "..." }`
+成功 `200`：
+```json
+{
+  "success": true,
+  "message": "登录成功",
+  "data": { "user": { "...": "用户资料" }, "accessToken": "JWT", "expiresIn": 900 }
+}
+```
+同时通过 `Set-Cookie` 下发 httpOnly 的 `refreshToken`（生产环境 secure，sameSite=strict，30 天）。
+
+### 刷新令牌
+```
+POST /api/auth/refresh
+```
+从 cookie 或请求体 `refreshToken` 读取；成功返回新的 accessToken。限流同登录。
+
+### 登出
+```
+POST /api/auth/logout
+```
+清除 refreshToken cookie，无需认证（令牌过期时也可调）。
+
+### 当前用户 / 资料 / 密码
+```
+GET  /api/auth/me          # 获取当前登录用户
+PUT  /api/auth/profile     # 更新资料（username 3-30 字符）
+PUT  /api/auth/password    # 修改密码：{ oldPassword, newPassword(≥8), confirmPassword }
+```
+> 修改密码端点为 `PUT /api/auth/password`，前端（Settings 页面、api.js / authService.js）已统一走该端点（v2.3.1 修复端到端不可用问题）。
 
 ---
 
@@ -42,7 +110,10 @@ GET /api/tasks
 - `page` (integer, optional): 页码，默认为 1
 - `limit` (integer, optional): 每页数量，默认为 10
 - `status` (string, optional): 任务状态过滤 (pending, running, paused, completed, failed)
+- `crawlType` (string, optional): 采集类型过滤 (single, batch)
 - `sort` (string, optional): 排序字段，默认为 -createdAt
+
+> 普通用户仅返回本人任务；管理员返回全部。
 
 **响应示例**
 ```json
@@ -115,28 +186,26 @@ Content-Type: application/json
 **请求体**
 ```json
 {
-  "name": "新任务",
+  "name": "新任务（可选，留空自动命名）",
   "description": "任务描述",
-  "forumUrl": "https://example.com/forum",
+  "crawlType": "single",
+  "forumUrl": "https://example.com/post/123",
+  "sectionUrl": "https://example.com/section/1",
   "taskType": "mixed",
-  "config": {
-    "maxDepth": 3,
-    "delay": 1000,
-    "timeout": 30000,
-    "userAgent": "Mozilla/5.0...",
-    "headers": {}
-  }
+  "config": { "maxPages": 10 },
+  "schedule": { "enabled": false }
 }
 ```
 
-**必需字段**
-- `name` (string): 任务名称
-- `forumUrl` (string): 论坛 URL
+**字段规则**
+- `crawlType` (string, 必填): `single`（单帖）或 `batch`（批量）
+- `forumUrl` (string, 条件必填): 单帖采集时必填
+- `sectionUrl` (string, 条件必填): 批量采集时必填
+- `name` (string, 可选): 留空时按类型自动生成（`单帖/批量采集_<时间戳>`），批量任务也可由爬虫返回的标题补全
+- `taskType` (string, 可选): novel / image / mixed
+- `description` / `config` / `schedule` (object, 可选)
 
-**可选字段**
-- `description` (string): 任务描述
-- `taskType` (string): 任务类型 (novel, image, mixed)，默认 mixed
-- `config` (object): 爬虫配置
+创建成功后任务状态固定为 `pending`（客户端传入的 status/userId 等字段被忽略）。
 
 **响应示例**
 ```json
@@ -166,7 +235,9 @@ Content-Type: application/json
 **参数**
 - `id` (string): 任务 ID
 
-**请求体** (任何可更新字段)
+**请求体**（仅白名单字段生效，其余忽略）
+- 可更新字段：`name`、`description`、`forumUrl`、`sectionUrl`、`crawlType`、`taskType`、`config`、`schedule`
+- `status`、`userId`、`progress` 等状态/归属字段不在白名单，传入即忽略（防批量赋值篡改）
 ```json
 {
   "name": "更新的名称",
@@ -280,6 +351,77 @@ POST /api/tasks/:id/resume
   "message": "Task resumed"
 }
 ```
+
+---
+
+### 9. 取消排队任务
+
+**请求**
+```
+POST /api/tasks/:id/cancel
+```
+
+取消仍在队列中等待（waiting/delayed）的任务：从队列移除 job 并将任务回退为 `paused`。
+
+- 任务正在执行（running）→ `400`「任务正在执行中，无法取消」
+- 任务不在等待队列（如已消费完成）→ `400`「任务不在等待队列中」
+
+**响应示例**
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "65d1234567890abcdef12345",
+    "status": "paused"
+  },
+  "message": "Task cancelled"
+}
+```
+
+---
+
+### 10. 查看任务执行日志
+
+**请求**
+```
+GET /api/tasks/:id/logs?lines=100
+```
+
+**查询参数**
+- `lines` (integer, optional): 返回日志尾部行数，默认 100
+
+读取爬虫任务落盘日志（`crawler/logs/task_<id>.log`）的尾部。
+
+**响应示例**（日志存在）
+```json
+{
+  "success": true,
+  "data": {
+    "taskId": "65d1234567890abcdef12345",
+    "logs": ["开始爬虫任务 ...", "PROGRESS:50", "CRAWLED:12"],
+    "exists": true
+  }
+}
+```
+
+任务尚未执行、日志文件不存在时：
+```json
+{
+  "success": true,
+  "data": { "taskId": "...", "logs": [], "exists": false }
+}
+```
+
+---
+
+### 11. 爬虫队列统计（管理员）
+
+**请求**
+```
+GET /api/tasks/crawler/stats
+```
+
+需 `admin` 角色（普通用户 `403`）。返回 Bull 队列计数：`active` / `waiting` / `completed` / `failed` / `paused` / `delayed`。
 
 ---
 
@@ -442,6 +584,11 @@ Content-Type: application/json
 **参数**
 - `id` (string): 内容 ID
 
+**请求体**（仅白名单字段生效，其余忽略）
+- 可更新字段：`title`、`content`、`visibility`（public/private/protected）、`status`（active/archived/flagged）、`tags`
+- `userId`、`taskId`、`sourceUrl`、`contentHash`、`postType`、`likes/views/replies` 等不在白名单，传入即忽略（防批量赋值篡改）
+- 仅所有者本人可更新（非所有者返回 404）
+
 ---
 
 ### 7. 删除内容
@@ -458,9 +605,9 @@ DELETE /api/posts/:id
 
 ## 健康检查
 
-**请求**
+**请求**（无需认证，路径无 `/api` 前缀）
 ```
-GET /api/health
+GET /health
 ```
 
 **响应示例**
@@ -474,64 +621,67 @@ GET /api/health
 
 ---
 
-## 错误响应
+## 其他模块
 
-### 常见错误码
-
-| 状态码 | 含义 | 原因 |
-|--------|------|------|
-| 200 | 成功 | 请求成功 |
-| 201 | 创建成功 | 资源创建成功 |
-| 400 | 请求错误 | 请求参数错误或验证失败 |
-| 404 | 未找到 | 资源不存在 |
-| 500 | 服务器错误 | 服务器内部错误 |
-
-### 错误响应示例
-```json
-{
-  "success": false,
-  "message": "Task not found"
-}
-```
+- **浏览/检索 API**：`/api/browse/images`、`/api/browse/novels`、`/api/browse/collections/*` 等（图片/小说浏览、搜索、收藏夹管理），均需认证
+- **管理 API**：`/api/admin/*`（用户管理、系统配置、监控），需 `admin` 角色
+- 响应结构与上述统一约定一致
 
 ---
 
 ## 使用示例
 
+> 除注册/登录等公开接口外，请求头需携带 `Authorization: Bearer <accessToken>`。
+
 ### cURL
 
 ```bash
+# 登录获取令牌
+curl -X POST "http://localhost:5000/api/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"a@b.c","password":"yourpassword"}'
+
 # 获取所有任务
-curl -X GET "http://localhost:5000/api/tasks?page=1&limit=10"
+curl -X GET "http://localhost:5000/api/tasks?page=1&limit=10" \
+  -H "Authorization: Bearer <accessToken>"
 
 # 创建新任务
 curl -X POST "http://localhost:5000/api/tasks" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <accessToken>" \
   -d '{
-    "name": "新任务",
-    "forumUrl": "https://example.com/forum",
+    "crawlType": "single",
+    "forumUrl": "https://example.com/post/123",
     "taskType": "mixed"
   }'
 
-# 启动任务
-curl -X POST "http://localhost:5000/api/tasks/65d1234567890abcdef12345/start"
+# 取消排队任务
+curl -X POST "http://localhost:5000/api/tasks/65d1234567890abcdef12345/cancel" \
+  -H "Authorization: Bearer <accessToken>"
+
+# 查看任务日志尾部
+curl "http://localhost:5000/api/tasks/65d1234567890abcdef12345/logs?lines=200" \
+  -H "Authorization: Bearer <accessToken>"
 ```
 
 ### JavaScript/Fetch
 
 ```javascript
+const TOKEN = '登录后获取的 accessToken';
+const authHeader = { Authorization: `Bearer ${TOKEN}` };
+
 // 获取所有任务
-fetch('http://localhost:5000/api/tasks?page=1&limit=10')
+fetch('http://localhost:5000/api/tasks?page=1&limit=10', { headers: authHeader })
   .then(res => res.json())
   .then(data => console.log(data));
 
 // 创建新任务
 fetch('http://localhost:5000/api/tasks', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: { 'Content-Type': 'application/json', ...authHeader },
   body: JSON.stringify({
-    name: '新任务',
-    forumUrl: 'https://example.com/forum',
+    crawlType: 'single',
+    forumUrl: 'https://example.com/post/123',
     taskType: 'mixed'
   })
 })
@@ -544,19 +694,19 @@ fetch('http://localhost:5000/api/tasks', {
 ```python
 import requests
 
+headers = {'Authorization': f'Bearer {access_token}'}
+
 # 获取所有任务
-response = requests.get('http://localhost:5000/api/tasks', params={
-    'page': 1,
-    'limit': 10
-})
+response = requests.get('http://localhost:5000/api/tasks',
+                        params={'page': 1, 'limit': 10}, headers=headers)
 print(response.json())
 
 # 创建新任务
 response = requests.post('http://localhost:5000/api/tasks', json={
-    'name': '新任务',
-    'forumUrl': 'https://example.com/forum',
+    'crawlType': 'single',
+    'forumUrl': 'https://example.com/post/123',
     'taskType': 'mixed'
-})
+}, headers=headers)
 print(response.json())
 ```
 
