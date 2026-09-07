@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const stubClient = {
   post: vi.fn(),
   put: vi.fn(),
+  interceptors: { request: { use: vi.fn() } },
 };
 
 vi.mock('axios', () => ({
@@ -50,6 +51,12 @@ describe('authService 登录/登出', () => {
     expect(stubClient.post).toHaveBeenCalledWith('/auth/logout');
     expect(localStorage.getItem('user')).toBeNull();
     expect(localStorage.getItem('accessToken')).toBeNull();
+  });
+});
+
+describe('authService 认证头拦截器', () => {
+  it('apiClient 注册了 Bearer 请求拦截器（authMiddleware 仅认 Authorization 头）', () => {
+    expect(stubClient.interceptors.request.use).toHaveBeenCalled();
   });
 });
 

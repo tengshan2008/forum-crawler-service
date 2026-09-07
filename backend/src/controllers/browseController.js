@@ -1,826 +1,157 @@
-const Post = require('../models/Post');
-const Collection = require('../models/Collection');
+const browseService = require('../services/browseService');
 const catchAsync = require('../utils/catchAsync');
-const AppError = require('../utils/AppError');
+const { sendSuccess } = require('../utils/respond');
 
-// 简单内存缓存，用于缓存文档计数
-const countCache = {
-  data: {},
-  ttl: 60000, // 缓存 TTL 60秒
-
-  get(key) {
-    const item = this.data[key];
-    if (item && Date.now() - item.timestamp < this.ttl) {
-      return item.value;
-    }
-    return null;
-  },
-
-  set(key, value) {
-    this.data[key] = { value, timestamp: Date.now() };
-  },
-
-  clear() {
-    this.data = {};
-  }
-};
-
-// 查询超时时间 (毫秒)
-const QUERY_TIMEOUT_MS = 10000;
+/**
+ * 浏览域控制器：仅做参数与响应组装，业务规则在 browseService
+ */
 
 /**
  * 获取图片列表
  */
 exports.getImages = catchAsync(async (req, res) => {
-  const { page = 1, limit = 20, taskId, sortBy = '-createdAt' } = req.query;
-  const pageNum = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNum - 1) * pageSize;
-
-  // 构建查询条件
-  const filter = {
-    postType: { $in: ['image', 'mixed'] },
-    media: { $exists: true, $ne: [] }, // 确保有图片
-  };
-
-  if (taskId) {
-    filter.taskId = taskId;
-  }
-
-  // 先查询所有匹配的帖子（不分页）
-  const allPosts = await Post.find(filter)
-    .select('title author sourceUrl taskId media createdAt')
-    .sort(sortBy);
-
-  // 扁平化处理：每个图片作为一个单独的项
-  const allImages = [];
-  allPosts.forEach((post) => {
-    if (post.media && post.media.length > 0) {
-      post.media.forEach((img) => {
-        allImages.push({
-          _id: `${post._id}-${img.url}`,
-          postId: post._id,
-          postTitle: post.title,
-          author: post.author,
-          sourceUrl: post.sourceUrl,
-          taskId: post.taskId,
-          url: img.url,
-          originalUrl: img.originalUrl,
-          description: img.description,
-          createdAt: post.createdAt,
-        });
-      });
-    }
-  });
-
-  // 对扁平化后的图片进行分页
-  const paginatedImages = allImages.slice(skip, skip + pageSize);
-  const total = allImages.length;
-
-  res.status(200).json({
-    success: true,
-    data: paginatedImages,
-    pagination: {
-      page: pageNum,
-      limit: pageSize,
-      total,
-      pages: Math.ceil(total / pageSize),
-    },
-  });
+  const { items, pagination } = await browseService.listImages(req.query);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
  * 获取按网页分组的图片列表
  */
 exports.getImageGroups = catchAsync(async (req, res) => {
-  const { page = 1, limit = 12, taskId, sortBy = '-createdAt' } = req.query;
-  const pageNum = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNum - 1) * pageSize;
-
-  // 构建查询条件
-  const filter = {
-    postType: { $in: ['image', 'mixed'] },
-    media: { $exists: true, $ne: [] }, // 确保有图片
-  };
-
-  if (taskId) {
-    filter.taskId = taskId;
-  }
-
-  // 查询帖子，按网页分组
-  const posts = await Post.find(filter)
-    .select('title author sourceUrl taskId media createdAt')
-    .sort(sortBy)
-    .skip(skip)
-    .limit(pageSize);
-
-  // 构建分组数据
-  const imageGroups = posts.map((post) => ({
-    _id: post._id,
-    title: post.title,
-    author: post.author,
-    sourceUrl: post.sourceUrl,
-    taskId: post.taskId,
-    createdAt: post.createdAt,
-    totalImages: post.media.length,
-    previewImages: post.media.slice(0, 4).map((img) => ({
-      url: img.url,
-      description: img.description,
-    })),
-    allImages: post.media.map((img) => ({
-      url: img.url,
-      originalUrl: img.originalUrl,
-      description: img.description,
-    })),
-  }));
-
-  // 获取总数
-  const total = await Post.countDocuments(filter);
-
-  res.status(200).json({
-    success: true,
-    data: imageGroups,
-    pagination: {
-      page: pageNum,
-      limit: pageSize,
-      total,
-      pages: Math.ceil(total / pageSize),
-    },
-  });
+  const { items, pagination } = await browseService.listImageGroups(req.query);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
  * 搜索和筛选图片
  */
 exports.searchImages = catchAsync(async (req, res) => {
-  const {
-    keyword,
-    taskId,
-    startDate,
-    endDate,
-    page = 1,
-    limit = 20,
-    sortBy = '-createdAt',
-  } = req.body;
-
-  const filter = {
-    postType: { $in: ['image', 'mixed'] },
-    media: { $exists: true, $ne: [] },
-  };
-
-  // 关键词搜索
-  if (keyword) {
-    filter.$or = [
-      { title: { $regex: keyword, $options: 'i' } },
-      { author: { $regex: keyword, $options: 'i' } },
-    ];
-  }
-
-  // 任务筛选
-  if (taskId) {
-    filter.taskId = taskId;
-  }
-
-  // 时间范围筛选
-  if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) {
-      filter.createdAt.$gte = new Date(startDate);
-    }
-    if (endDate) {
-      filter.createdAt.$lte = new Date(endDate);
-    }
-  }
-
-  const pageNum = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNum - 1) * pageSize;
-
-  // 先查询所有匹配的帖子（不分页）
-  const allPosts = await Post.find(filter)
-    .select('title author sourceUrl taskId media createdAt')
-    .sort(sortBy);
-
-  // 扁平化处理：每个图片作为一个单独的项
-  const allImages = [];
-  allPosts.forEach((post) => {
-    if (post.media && post.media.length > 0) {
-      post.media.forEach((img) => {
-        allImages.push({
-          _id: `${post._id}-${img.url}`,
-          postId: post._id,
-          postTitle: post.title,
-          author: post.author,
-          sourceUrl: post.sourceUrl,
-          taskId: post.taskId,
-          url: img.url,
-          originalUrl: img.originalUrl,
-          description: img.description,
-          createdAt: post.createdAt,
-        });
-      });
-    }
-  });
-
-  // 对扁平化后的图片进行分页
-  const paginatedImages = allImages.slice(skip, skip + pageSize);
-  const total = allImages.length;
-
-  res.status(200).json({
-    success: true,
-    data: paginatedImages,
-    pagination: {
-      page: pageNum,
-      limit: pageSize,
-      total,
-      pages: Math.ceil(total / pageSize),
-    },
-  });
+  const { items, pagination } = await browseService.searchImages(req.body);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
- * 获取小说列表 - 已优化
- * 优化点：
- * 1. 使用 hint 强制使用复合索引
- * 2. 使用缓存减少 countDocuments 调用
- * 3. 添加查询超时保护
- * 4. 在应用层计算字数和截取摘要
+ * 获取小说列表
  */
 exports.getNovels = catchAsync(async (req, res) => {
-  const { page = 1, limit = 20, taskId, sortBy = '-createdAt', lastId } = req.query;
-  const pageNum = parseInt(page);
-  const pageSize = Math.min(parseInt(limit), 100); // 限制最大每页数量
-
-  // 构建查询条件
-  const filter = {
-    postType: { $in: ['novel', 'text'] },
-  };
-
-  if (taskId) {
-    filter.taskId = taskId;
-  }
-
-  // 游标分页优化：如果提供了 lastId，使用 _id 进行分页
-  // 这比 skip 在大数据量时效率高得多
-  let query;
-  if (lastId && sortBy === '-createdAt') {
-    filter._id = { $lt: lastId };
-    query = Post.find(filter)
-      .select('title author content sourceUrl taskId createdAt views likes replies')
-      .sort({ _id: -1 })
-      .limit(pageSize)
-      .maxTimeMS(QUERY_TIMEOUT_MS)
-      .lean();
-  } else {
-    const skip = (pageNum - 1) * pageSize;
-    query = Post.find(filter)
-      .select('title author content sourceUrl taskId createdAt views likes replies')
-      .sort(sortBy)
-      .skip(skip)
-      .limit(pageSize)
-      .maxTimeMS(QUERY_TIMEOUT_MS)
-      .lean();
-  }
-
-  // 使用复合索引提示
-  if (taskId) {
-    query = query.hint({ postType: 1, taskId: 1, createdAt: -1 });
-  } else {
-    query = query.hint({ postType: 1, createdAt: -1 });
-  }
-
-  const novels = await query;
-
-  // 为每个小说添加字数统计和摘要，然后删除 content 字段减少传输量
-  const enrichedNovels = novels.map((novel) => ({
-    _id: novel._id,
-    title: novel.title,
-    author: novel.author,
-    sourceUrl: novel.sourceUrl,
-    taskId: novel.taskId,
-    createdAt: novel.createdAt,
-    views: novel.views,
-    likes: novel.likes,
-    replies: novel.replies,
-    wordCount: novel.content ? novel.content.length : 0,
-    excerpt: novel.content ? novel.content.substring(0, 200) : '',
-  }));
-
-  // 获取总数（使用缓存）
-  const cacheKey = `novels_count_${taskId || 'all'}`;
-  let total = countCache.get(cacheKey);
-  if (total === null) {
-    total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
-    countCache.set(cacheKey, total);
-  }
-
-  res.status(200).json({
-    success: true,
-    data: enrichedNovels,
-    pagination: {
-      page: pageNum,
-      limit: pageSize,
-      total,
-      pages: Math.ceil(total / pageSize),
-      // 返回最后一条记录的 ID，用于游标分页
-      lastId: novels.length > 0 ? novels[novels.length - 1]._id : null,
-    },
-  });
+  const { items, pagination } = await browseService.listNovels(req.query);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
- * 搜索和筛选小说 - 已优化
- * 优化点：
- * 1. 使用 MongoDB 文本索引替代正则表达式（性能提升 10-100 倍）
- * 2. 添加查询超时保护
- * 3. 支持回退到正则表达式搜索（当文本索引不适用时）
- * 4. 在应用层计算字数和截取摘要
+ * 搜索和筛选小说
  */
 exports.searchNovels = catchAsync(async (req, res) => {
-  const {
-    keyword,
-    taskId,
-    startDate,
-    endDate,
-    page = 1,
-    limit = 20,
-    sortBy = '-createdAt',
-    useTextSearch = true, // 是否使用文本索引搜索
-  } = req.body;
-
-  const pageNum = parseInt(page);
-  const pageSize = Math.min(parseInt(limit), 100);
-  const skip = (pageNum - 1) * pageSize;
-
-  const filter = {
-    postType: { $in: ['novel', 'text'] },
-  };
-
-  // 任务筛选
-  if (taskId) {
-    filter.taskId = taskId;
-  }
-
-  // 时间范围筛选
-  if (startDate || endDate) {
-    filter.createdAt = {};
-    if (startDate) {
-      filter.createdAt.$gte = new Date(startDate);
-    }
-    if (endDate) {
-      filter.createdAt.$lte = new Date(endDate);
-    }
-  }
-
-  let novels;
-  let total;
-
-  if (keyword && keyword.trim()) {
-    const trimmedKeyword = keyword.trim();
-
-    if (useTextSearch) {
-      // 使用 MongoDB 文本索引搜索（推荐，性能更好）
-      filter.$text = { $search: trimmedKeyword };
-
-      // 文本搜索时，按相关性分数排序
-      novels = await Post.find(filter, { score: { $meta: 'textScore' } })
-        .select('title author content sourceUrl taskId createdAt views likes replies')
-        .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
-        .skip(skip)
-        .limit(pageSize)
-        .maxTimeMS(QUERY_TIMEOUT_MS)
-        .lean();
-
-      total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
-    } else {
-      // 回退到正则表达式搜索（仅搜索 title 和 author，不搜索 content）
-      // 使用前缀匹配可以利用索引
-      const escapedKeyword = trimmedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      filter.$or = [
-        { title: { $regex: escapedKeyword, $options: 'i' } },
-        { author: { $regex: escapedKeyword, $options: 'i' } },
-      ];
-
-      novels = await Post.find(filter)
-        .select('title author content sourceUrl taskId createdAt views likes replies')
-        .sort(sortBy)
-        .skip(skip)
-        .limit(pageSize)
-        .maxTimeMS(QUERY_TIMEOUT_MS)
-        .lean();
-
-      total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
-    }
-  } else {
-    // 无关键词时直接查询
-    novels = await Post.find(filter)
-      .select('title author content sourceUrl taskId createdAt views likes replies')
-      .sort(sortBy)
-      .skip(skip)
-      .limit(pageSize)
-      .hint({ postType: 1, createdAt: -1 })
-      .maxTimeMS(QUERY_TIMEOUT_MS)
-      .lean();
-
-    // 使用缓存获取总数
-    const cacheKey = `search_count_${taskId || 'all'}_${startDate || ''}_${endDate || ''}`;
-    total = countCache.get(cacheKey);
-    if (total === null) {
-      total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
-      countCache.set(cacheKey, total);
-    }
-  }
-
-  // 为每个小说添加字数统计和摘要，然后删除 content 字段减少传输量
-  const enrichedNovels = novels.map((novel) => ({
-    _id: novel._id,
-    title: novel.title,
-    author: novel.author,
-    sourceUrl: novel.sourceUrl,
-    taskId: novel.taskId,
-    createdAt: novel.createdAt,
-    views: novel.views,
-    likes: novel.likes,
-    replies: novel.replies,
-    wordCount: novel.content ? novel.content.length : 0,
-    excerpt: novel.content ? novel.content.substring(0, 200) : '',
-  }));
-
-  res.status(200).json({
-    success: true,
-    data: enrichedNovels,
-    pagination: {
-      page: pageNum,
-      limit: pageSize,
-      total,
-      pages: Math.ceil(total / pageSize),
-    },
-  });
+  const { items, pagination } = await browseService.searchNovels(req.body);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
  * 获取单个小说的详细内容
  */
-exports.getNovelContent = catchAsync(async (req, res, next) => {
-  const { id } = req.params;
-
-  // 使用 findByIdAndUpdate 原子更新浏览量，避免 save() 触发 validation 错误
-  // 因为部分老数据可能缺少 userId 等必填字段
-  const novel = await Post.findByIdAndUpdate(
-    id,
-    { $inc: { views: 1 } },
-    { new: true } // 返回更新后的文档
-  );
-
-  if (!novel) {
-    return next(new AppError('小说不存在', 404));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: novel,
-  });
+exports.getNovelContent = catchAsync(async (req, res) => {
+  const novel = await browseService.getNovelContent(req.params.id);
+  sendSuccess(res, { data: novel });
 });
 
 /**
  * 创建收藏夹
  */
 exports.createCollection = catchAsync(async (req, res) => {
-  const { name, description, isPublic, tags } = req.body;
-
-  if (!name) {
-    return next(new AppError('收藏夹名称不能为空', 400));
-  }
-
-  const collection = await Collection.create({
-    name,
-    description: description || '',
-    isPublic: isPublic || false,
-    tags: tags || [],
-  });
-
-  res.status(201).json({
-    success: true,
-    data: collection,
-  });
+  const collection = await browseService.createCollection(req.body);
+  sendSuccess(res, { status: 201, data: collection });
 });
 
 /**
  * 获取所有收藏夹
  */
 exports.getCollections = catchAsync(async (req, res) => {
-  const { page = 1, limit = 20 } = req.query;
-  const skip = (page - 1) * limit;
-
-  const collections = await Collection.find()
-    .select('name description coverImage itemCount isPublic tags createdAt')
-    .sort('-createdAt')
-    .skip(skip)
-    .limit(parseInt(limit));
-
-  const total = await Collection.countDocuments();
-
-  res.status(200).json({
-    success: true,
-    data: collections,
-    pagination: {
-      page: parseInt(page),
-      limit: parseInt(limit),
-      total,
-      pages: Math.ceil(total / limit),
-    },
-  });
+  const { items, pagination } = await browseService.listCollections(req.query);
+  sendSuccess(res, { data: items, pagination });
 });
 
 /**
  * 获取单个收藏夹详情
  */
 exports.getCollection = catchAsync(async (req, res) => {
-  const { id } = req.params;
-
-  const collection = await Collection.findById(id).populate({
-    path: 'items',
-    select: 'title author media content postType createdAt',
-  });
-
-  if (!collection) {
-    return next(new AppError('收藏夹不存在', 404));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: collection,
-  });
+  const collection = await browseService.getCollectionById(req.params.id);
+  sendSuccess(res, { data: collection });
 });
 
 /**
  * 添加内容到收藏夹
  */
 exports.addToCollection = catchAsync(async (req, res) => {
-  const { id } = req.params;
-  const { postId } = req.body;
-
-  if (!postId) {
-    return next(new AppError('内容ID不能为空', 400));
-  }
-
-  // 检查内容是否存在
-  const post = await Post.findById(postId);
-  if (!post) {
-    return next(new AppError('内容不存在', 404));
-  }
-
-  // 检查收藏夹是否存在
-  let collection = await Collection.findById(id);
-  if (!collection) {
-    return next(new AppError('收藏夹不存在', 404));
-  }
-
-  // 避免重复添加
-  if (collection.items.includes(postId)) {
-    return res.status(200).json({
-      success: true,
-      message: '内容已存在于收藏夹',
-      data: collection,
-    });
-  }
-
-  // 添加到收藏夹
-  collection.items.push(postId);
-  collection.itemCount = collection.items.length;
-  await collection.save();
-
-  res.status(200).json({
-    success: true,
-    message: '已添加到收藏夹',
-    data: collection,
-  });
+  const { collection, message } = await browseService.addToCollection(
+    req.params.id,
+    req.body.postId
+  );
+  sendSuccess(res, { data: collection, message });
 });
 
 /**
  * 从收藏夹移除内容
  */
 exports.removeFromCollection = catchAsync(async (req, res) => {
-  const { id } = req.params;
-  const { postId } = req.body;
-
-  if (!postId) {
-    return next(new AppError('内容ID不能为空', 400));
-  }
-
-  const collection = await Collection.findById(id);
-  if (!collection) {
-    return next(new AppError('收藏夹不存在', 404));
-  }
-
-  // 移除内容
-  collection.items = collection.items.filter(
-    (item) => item.toString() !== postId
+  const { collection, message } = await browseService.removeFromCollection(
+    req.params.id,
+    req.body.postId
   );
-  collection.itemCount = collection.items.length;
-  await collection.save();
-
-  res.status(200).json({
-    success: true,
-    message: '已从收藏夹移除',
-    data: collection,
-  });
+  sendSuccess(res, { data: collection, message });
 });
 
 /**
  * 删除收藏夹
  */
 exports.deleteCollection = catchAsync(async (req, res) => {
-  const { id } = req.params;
-
-  const collection = await Collection.findByIdAndDelete(id);
-
-  if (!collection) {
-    return next(new AppError('收藏夹不存在', 404));
-  }
-
-  res.status(200).json({
-    success: true,
-    message: '收藏夹已删除',
-  });
+  const message = await browseService.deleteCollection(req.params.id);
+  sendSuccess(res, { message });
 });
 
 /**
  * 更新收藏夹
  */
 exports.updateCollection = catchAsync(async (req, res) => {
-  const { id } = req.params;
-  const { name, description, isPublic, tags, coverImage } = req.body;
-
-  const collection = await Collection.findByIdAndUpdate(
-    id,
-    {
-      name,
-      description,
-      isPublic,
-      tags,
-      coverImage,
-    },
-    { new: true, runValidators: true }
-  );
-
-  if (!collection) {
-    return next(new AppError('收藏夹不存在', 404));
-  }
-
-  res.status(200).json({
-    success: true,
-    data: collection,
-  });
+  const collection = await browseService.updateCollection(req.params.id, req.body);
+  sendSuccess(res, { data: collection });
 });
 
 /**
  * 清除计数缓存
- * 当数据发生变化时调用以获取最新的计数
  */
 exports.clearCache = catchAsync(async (req, res) => {
-  countCache.clear();
-
-  res.status(200).json({
-    success: true,
-    message: '缓存已清除',
-  });
+  const message = browseService.clearCache();
+  sendSuccess(res, { message });
 });
 
 /**
  * 获取数据库统计信息
- * 用于监控和调试
  */
 exports.getStats = catchAsync(async (req, res) => {
-  const stats = {
-    novels: {
-      total: await Post.countDocuments({ postType: { $in: ['novel', 'text'] } }).maxTimeMS(QUERY_TIMEOUT_MS),
-    },
-    images: {
-      total: await Post.countDocuments({ postType: { $in: ['image', 'mixed'] } }).maxTimeMS(QUERY_TIMEOUT_MS),
-    },
-    cache: {
-      entries: Object.keys(countCache.data).length,
-      ttlSeconds: countCache.ttl / 1000,
-    },
-  };
-
-  res.status(200).json({
-    success: true,
-    data: stats,
-  });
+  const stats = await browseService.getStats();
+  sendSuccess(res, { data: stats });
 });
 
 /**
  * 删除小说（整个 Post）
  */
-exports.deleteNovel = catchAsync(async (req, res, next) => {
-  const { id } = req.params;
-
-  const post = await Post.findByIdAndDelete(id);
-
-  if (!post) {
-    return next(new AppError('小说不存在', 404));
-  }
-
-  // 清除缓存，因为文档数量已变化
-  countCache.clear();
-
-  res.status(200).json({
-    success: true,
-    message: '小说已删除',
-    data: post,
-  });
+exports.deleteNovel = catchAsync(async (req, res) => {
+  const { post, message } = await browseService.deleteNovel(req.params.id);
+  sendSuccess(res, { data: post, message });
 });
 
 /**
  * 删除图片（从 Post 中移除单个图片）
  */
-exports.deleteImage = catchAsync(async (req, res, next) => {
-  const { id } = req.params; // Post ID
-  const { imageUrl } = req.body;
-
-  if (!imageUrl) {
-    return next(new AppError('图片URL不能为空', 400));
-  }
-
-  const post = await Post.findById(id);
-
-  if (!post) {
-    return next(new AppError('内容不存在', 404));
-  }
-
-  // 检查是否有该图片
-  const mediaIndex = post.media.findIndex((img) => img.url === imageUrl);
-
-  if (mediaIndex === -1) {
-    return next(new AppError('图片不存在', 404));
-  }
-
-  // 删除该图片
-  post.media.splice(mediaIndex, 1);
-
-  // 如果删除后没有图片和内容，则删除整个 Post
-  if (post.media.length === 0 && !post.content) {
-    await Post.findByIdAndDelete(id);
-    countCache.clear();
-    return res.status(200).json({
-      success: true,
-      message: '图片已删除，由于内容为空已删除整个 Post',
-      data: null,
-    });
-  }
-
-  // 保存更新
-  const updatedPost = await post.save();
-
-  res.status(200).json({
-    success: true,
-    message: '图片已删除',
-    data: updatedPost,
-  });
+exports.deleteImage = catchAsync(async (req, res) => {
+  const { post, message } = await browseService.deleteImage(req.params.id, req.body.imageUrl);
+  sendSuccess(res, { data: post, message });
 });
 
 /**
- * 批量删除图片（从 Post 中删除多个图片）
+ * 批量删除图片
  */
-exports.deleteImages = catchAsync(async (req, res, next) => {
-  const { id } = req.params; // Post ID
-  const { imageUrls } = req.body;
-
-  if (!imageUrls || !Array.isArray(imageUrls) || imageUrls.length === 0) {
-    return next(new AppError('图片URL列表不能为空', 400));
-  }
-
-  const post = await Post.findById(id);
-
-  if (!post) {
-    return next(new AppError('内容不存在', 404));
-  }
-
-  // 过滤出存在的图片并删除
-  const originalCount = post.media.length;
-  post.media = post.media.filter((img) => !imageUrls.includes(img.url));
-
-  // 如果删除后没有图片和内容，则删除整个 Post
-  if (post.media.length === 0 && !post.content) {
-    await Post.findByIdAndDelete(id);
-    countCache.clear();
-    return res.status(200).json({
-      success: true,
-      message: `已删除 ${originalCount - post.media.length} 张图片，由于内容为空已删除整个 Post`,
-      data: null,
-    });
-  }
-
-  // 保存更新
-  const updatedPost = await post.save();
-
-  res.status(200).json({
-    success: true,
-    message: `已删除 ${originalCount - post.media.length} 张图片`,
-    data: updatedPost,
-  });
+exports.deleteImages = catchAsync(async (req, res) => {
+  const { post, message } = await browseService.deleteImages(req.params.id, req.body.imageUrls);
+  sendSuccess(res, { data: post, message });
 });
-

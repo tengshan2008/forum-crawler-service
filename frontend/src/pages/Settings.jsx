@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Card, Form, Input, Button, Row, Col, Divider, Space, Alert, Modal } from 'antd';
 import { LockOutlined, UserOutlined, MailOutlined, SaveOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
-import { getCurrentUser } from '../services/authService';
-import { updateProfile, changePassword } from '../services/api';
+import { getCurrentUser, updateProfile, changePassword } from '../services/authService';
 import './Settings.css';
 
 const Settings = () => {
@@ -37,13 +36,13 @@ const Settings = () => {
         email: values.email,
       });
       
-      if (response.data.success) {
+      if (response.success) {
         showMessage('success', '个人信息更新成功！');
       } else {
-        showMessage('error', response.data.message || '更新失败');
+        showMessage('error', response.message || '更新失败');
       }
     } catch (error) {
-      showMessage('error', error.message || '更新个人信息失败');
+      showMessage('error', error.response?.data?.message || error.message || '更新个人信息失败');
     } finally {
       setLoading(false);
     }
@@ -65,13 +64,13 @@ const Settings = () => {
       onOk: async () => {
         setLoading(true);
         try {
-          const response = await changePassword({
-            oldPassword: values.currentPassword,
-            newPassword: values.newPassword,
-            confirmPassword: values.confirmPassword,
-          });
+          const response = await changePassword(
+            values.currentPassword,
+            values.newPassword,
+            values.confirmPassword
+          );
 
-          if (response.data.success) {
+          if (response.success) {
             showMessage('success', '密码已更改，请重新登录');
             passwordForm.resetFields();
             // 后端已清除刷新令牌，同步清理本地会话后跳转登录页
@@ -81,10 +80,10 @@ const Settings = () => {
               window.location.href = '/login';
             }, 2000);
           } else {
-            showMessage('error', response.data.message || '密码更改失败');
+            showMessage('error', response.message || '密码更改失败');
           }
         } catch (error) {
-          showMessage('error', error.message || '更改密码失败');
+          showMessage('error', error.response?.data?.message || error.message || '更改密码失败');
         } finally {
           setLoading(false);
         }

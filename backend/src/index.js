@@ -43,12 +43,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Static files middleware - serve downloaded images
-// Add CORS headers explicitly for static files
-app.use('/public', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  next();
-}, express.static(path.join(__dirname, '../../public')));
+// S5：跨域策略统一由全局 corsMiddleware（白名单）与 helmet CORP 管理，
+// 不再对静态资源单独放开 Access-Control-Allow-Origin: *（<img> 引用不受 CORS 限制）
+app.use('/public', express.static(path.join(__dirname, '../../public')));
 
 // Routes
 app.use('/', routes);

@@ -1,5 +1,71 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.7.0 - B3 收官：browseController 变薄 + browseService 下沉
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`（B3 顺序 post→auth→admin→browse 全部完成）
+
+- 新增 `services/browseService.js`：图片/小说/收藏夹/统计全量业务规则下沉，含 7 个导出纯函数（buildImageFilter/buildNovelFilter/flattenPostsToImages/buildImageGroups/enrichNovels/escapeRegExp/buildPagination）与计数缓存、游标分页、文本/正则搜索、收藏夹幂等加项等数据访问
+- `browseController` 826 行 → 158 行，全部端点 `catchAsync + sendSuccess`，仅做参数与响应组装；API 路径/请求/响应结构零变化
+- 修复既有 bug：createCollection/getCollection/addToCollection/removeFromCollection/deleteCollection/updateCollection 等 handler 内 `return next(...)` 但函数签名无 `next`（触发 ReferenceError），现统一由 service 抛 AppError 交 errorHandler
+- 收藏夹列表分页计算修正：原 `skip = (page-1)*limit` 中 page/limit 未 parseInt（字符串运算产生 NaN 风险），现统一经 buildPagination 数值化
+- 测试：browseService 36 用例（纯函数直测 + 模型 mock 的 thenable 链式查询）、browseController 17 用例（委托参数/状态码/响应结构）；Jest 205 通过（原 152）
+- B3 sendSuccess helper 推广至此覆盖全部 controller（task/post/auth/admin/browse）
+
+## 版本 2.6.1 - 修复：刷新令牌 TTL 索引误删整条用户账号（账号定期消失）
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+
+- 根因：`User` 模型 `refreshTokens` 子文档的 `createdAt` 声明了 `expires: 2592000`，Mongoose 据此在 `users` 集合创建 TTL 索引。MongoDB TTL 作用于**整条文档**而非数组元素——当 `refreshTokens` 数组中最旧的令牌满 30 天时，TTL 监控线程会把**整个用户文档**删除，表现为注册账号过一段时间自动消失
+- 修复：移除子文档的 `expires: 2592000` 声明及无用的 `userSchema.index({ 'refreshTokens.createdAt': 1 })`；已对线上库执行 `db.users.dropIndex('refreshTokens.createdAt_1')`，全库扫描确认 users 上不再有任何 TTL 索引，后端重启后索引不会被重建
+- 令牌过期仍保持 30 天语义：刷新 JWT 本身 `expiresIn: '30d'`，且登录时在应用层清理超 30 天的入库令牌（无 `createdAt` 的历史令牌保留），不再依赖 Mongo TTL
+- 回归：authService 新增「登录清理超 30 天旧刷新令牌」用例；Jest 152 项全部通过
+- ⚠️ 升级注意：其他已部署环境需手动执行一次 `db.users.dropIndex('refreshTokens.createdAt_1')`（旧代码启动时会自动重建该索引；升级到本版本后不会再重建）
+
+## 版本 2.6.0 - B3 推广：adminController 接入统一响应 + 刷新令牌 TTL
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`（B3 顺序 post→auth→admin→browse）
+
+- `adminController` 16 个端点由静态方法类改为与 task/post/auth 一致的命名导出 + `catchAsync + sendSuccess`（路由按方法名引用，无需改动）
+- 错误语义保持：缺代理 URL/非法角色/密码过短 → 400、重置目标用户不存在 → 404（AppError 交 errorHandler），其余异常维持 500
+- 6 处重复的审计操作人上下文收敛为 `operatorFrom(req)`；`autoClean` 的 `success:false`（自动清理未启用）业务分支保持 200 契约
+- 新增 `adminController.test.js` 21 个用例：service 委托参数与操作人上下文、状态码、分页解析、用户管理链式查询/聚合管道、autoClean 双分支
+- S4 补充：登录时清理超过 30 天的旧刷新令牌（TTL，无 createdAt 的历史令牌保留以免误踢），与哈希入库/上限 10 共同防止 refreshTokens 无限累积
+- Jest 152 通过（原 130）
+
+## 版本 2.5.0 - B3 推广：authController 接入统一响应
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`（B3 机械重构，顺序 post→auth→admin→browse）
+
+- `authController` 7 个端点全部改为 `catchAsync + sendSuccess`，删除散落各 handler 的手写 try/catch 响应
+- 错误语义保持不变：register 400、login/refresh 401、getCurrentUser/updateProfile/changePassword 400，经 `AppError(message, statusCode)` 交 errorHandler 输出统一 `{success:false,message}`
+- 表单校验失败沿用 express-validator `{errors:[]}` 结构（全系统统一错误结构的历史例外，api.md 已注明），由本地 `validationFailed` 助手收敛
+- 行为微调：logout/changePassword 成功响应补 `data:null` 字段（与统一成功结构一致，前端仅判断 `success` 不受影响）；auth 错误现经 errorHandler 落 consola 错误日志（此前内联吞掉仅返响应）
+- 新增 `authController.test.js` 20 个用例：校验失败 {errors:[]}、成功响应结构、cookie/clearCookie 副作用、service 错误→AppError 状态码、logout 无令牌/有效令牌/DB 失败尽力而为
+- Jest 130 通过（原 110）
+
+## 版本 2.4.0 - 安全收尾（S4/S5/F4）
+**发布日期**: 2026-09-07
+**状态**: ✅ 已完成
+**报告**: `docs/reports/optimization-proposals-2026-09-06.md`
+
+### S4 刷新令牌加固
+- 刷新令牌入库前 SHA-256 哈希：login 仅存哈希、refresh 校验哈希、logout 按哈希删除，拖库后明文令牌不再可直接冒用
+- 单用户刷新令牌上限 10 个（`MAX_REFRESH_TOKENS`），登录时超出裁剪最旧
+- ⚠️ 行为变更：升级后存量明文刷新令牌校验失败，已登录用户需重新登录一次
+- 测试（Jest 110 通过）：登录哈希入库断言、上限裁剪、明文旧令牌失效回归守护、登出哈希匹配/全清
+
+### S5 静态资源跨域统一
+- 移除 `/public` 手动的 `Access-Control-Allow-Origin: *`，与 API 统一走 corsMiddleware 白名单；`<img>` 引用不受 CORS 限制，CORP 头由 helmet 全局提供，无功能回归
+
+### F4 令牌存储风险记录
+- docs/api.md 记录 accessToken 存 localStorage 的 XSS 风险（短期接受）与长期 httpOnly Cookie 演进方向
+
+### 附带修复：跨文件测试污染
+- `authService.test.js` 顶层新增 afterEach 清理密钥 env；`config.test.js` 新增 beforeEach 显式清空——本批新增测试改变 Jest worker 调度后，env 泄漏曾致 config 首用例偶发翻车
+
 ## 版本 2.3.1 - 修复修改密码端到端 Bug
 **发布日期**: 2026-09-07
 **状态**: ✅ 已完成
@@ -10,6 +76,18 @@
 - 密码修改成功后同步清理 localStorage 会话（user/accessToken）再跳转登录页，避免残留已失效令牌
 - 附带修复：`api.js` 对 `VITE_API_TIMEOUT` 做 `Number()` 数值化，修复既有 Vitest 超时用例因环境变量为字符串而断言失败的问题
 - 测试：Vitest 14 通过（更新 authService.changePassword 端点/载荷断言；api.test.js 新增 changePassword 端点用例）
+
+### updateProfile 端到端修复
+- 后端 `authService.updateProfile` 补齐 email 更新支持（小写规范化 + 唯一性校验"邮箱已被使用"），路由增加 email 格式校验；此前 email 被静默丢弃（用户名在表单中 disabled，email 是唯一可编辑项，等于表单假成功）
+- 前端移除 `api.js` 指向不存在路由的 `updateProfile`（`PUT /users/profile`）；Settings 页改用 `authService.updateProfile`（`PUT /auth/profile`），成功后同步刷新 localStorage 用户缓存
+- Settings 页错误提示透出后端 message（如"邮箱已被使用"），响应结构判断适配 authService 返回值（响应体）
+- 测试：后端 Jest 106 通过（authService 新增 5 个 updateProfile 用例）；Vitest 14 通过
+
+### changePassword 实现合并与认证头修复
+- `authService.js` 的 `apiClient` 补上 Bearer 请求拦截器（与 `api.js` 一致）——`authMiddleware` 仅认 `Authorization` 头，此前经 `apiClient` 发出的 `updateProfile`/`changePassword` 请求会因缺少认证头被 401 拒绝
+- `changePassword` 收敛为 `authService` 单一实现（定位参数 `(oldPassword, newPassword, confirmPassword)`，返回响应体），删除 `api.js` 的重复导出；`api.js` 回归纯领域 API（tasks/posts/browse）
+- Settings 页单一来源导入，两个表单的响应判断统一为 `response.success`；错误提示统一透出后端 `message`
+- Vitest 14 通过（api.test.js 移除 changePassword 用例，authService.test.js 新增拦截器注册守卫用例，端点/载荷覆盖不变）
 
 ## 版本 2.3.0 - P2 性能与体验（优化建议路线图）
 **发布日期**: 2026-09-07

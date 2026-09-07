@@ -28,6 +28,7 @@ backend/
     │   ├── crawlerQueueWorker.js             # 队列消费 worker（委托 taskService 流转状态）
     │   ├── crawlerExecutor.js                # 爬虫子进程执行器
     │   ├── schedulerService.js               # 定时调度（状态流转委托 taskService）
+    │   ├── browseService.js                 # 浏览域业务规则（图片/小说/收藏夹查询、纯函数 filter/分页/富化）
     │   └── authService.js                    # 认证与令牌
     ├── routes/
     │   ├── index.js                          # 路由入口

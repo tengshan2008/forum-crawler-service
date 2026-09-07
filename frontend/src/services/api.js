@@ -123,9 +123,4 @@ export const browseApi = {
   removeFromCollection: (id, itemId) => api.delete(`/browse/collections/${id}/items/${itemId}`),
 };
 
-// User API
-export const updateProfile = (data) => api.put('/users/profile', data);
-
-export const changePassword = (data) => api.put('/auth/password', data);
-
 export default api;

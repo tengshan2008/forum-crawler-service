@@ -1,7 +1,20 @@
 const { spawn } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 const Task = require('../models/Task');
 const config = require('../config/config');
+
+// 爬虫脚本路径解析：
+// 1. 环境变量 CRAWLER_SCRIPT_PATH（本地非 Docker 运行时显式指定）
+// 2. Docker 容器内默认路径 /app/crawler/crawl.py
+// 3. 回退到仓库内 crawler/crawl.py（本地源码运行）
+const DOCKER_CRAWLER_SCRIPT = '/app/crawler/crawl.py';
+const LOCAL_CRAWLER_SCRIPT = path.resolve(__dirname, '../../../crawler/crawl.py');
+function resolveCrawlerScript() {
+  if (process.env.CRAWLER_SCRIPT_PATH) return process.env.CRAWLER_SCRIPT_PATH;
+  if (fs.existsSync(DOCKER_CRAWLER_SCRIPT)) return DOCKER_CRAWLER_SCRIPT;
+  return LOCAL_CRAWLER_SCRIPT;
+}
 
 /**
  * 使用 Python 子进程执行爬虫
@@ -17,7 +30,7 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
     try {
       // 构建 Python 爬虫命令
       const pythonPath = process.env.PYTHON_PATH || 'python3';
-      const crawlerScript = '/app/crawler/crawl.py';
+      const crawlerScript = resolveCrawlerScript();
 
       // 构建参数
       // 批量采集需要更长的超时时间

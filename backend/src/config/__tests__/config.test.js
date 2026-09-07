@@ -1,6 +1,12 @@
 const config = require('../config');
 
 describe('validateEnv 启动安全自检', () => {
+  beforeEach(() => {
+    // 显式清空密钥 env，使各用例不依赖文件执行顺序（对其他文件的 env 泄漏免疫）
+    delete process.env.JWT_SECRET;
+    delete process.env.JWT_REFRESH_SECRET;
+  });
+
   afterEach(() => {
     delete process.env.JWT_SECRET;
     delete process.env.JWT_REFRESH_SECRET;

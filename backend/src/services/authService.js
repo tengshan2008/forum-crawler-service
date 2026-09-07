@@ -1,6 +1,14 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+
+// S4：单用户保留的刷新令牌上限（超出裁剪最旧的）
+const MAX_REFRESH_TOKENS = 10;
+// S4：刷新令牌入库前做 SHA-256 哈希，防拖库后明文令牌被直接冒用
+const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
+// 刷新令牌有效期 30 天（与 JWT expiresIn '30d' 对齐），登录时清理超期的入库令牌
+const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 class AuthService {
   /**
@@ -82,10 +90,27 @@ class AuthService {
     // 生成 JWT 令牌
     const tokens = this.generateTokens(user);
 
-    // 保存刷新令牌到数据库
+    // 应用层清理超过 30 天的旧刷新令牌。
+    // 不能使用 Mongo TTL 索引：TTL 作用于整条文档而非数组元素，
+    // refreshTokens 中最旧令牌到期会导致整个用户文档被 TTL 监控线程删除（账号消失根因）。
+    const now = Date.now();
+    user.refreshTokens = user.refreshTokens.filter(
+      (t) => !t.createdAt || now - new Date(t.createdAt).getTime() < REFRESH_TOKEN_TTL_MS
+    );
+
+    // 保存刷新令牌到数据库：先剔除超过 30 天的旧令牌（TTL），再仅存哈希，最后按上限裁剪最旧的
+    const refreshTokenTtlMs = 30 * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - refreshTokenTtlMs;
+    user.refreshTokens = user.refreshTokens.filter(
+      (t) => !t.createdAt || new Date(t.createdAt).getTime() >= cutoff
+    );
+
     user.refreshTokens.push({
-      token: tokens.refreshToken,
+      token: hashToken(tokens.refreshToken),
     });
+    if (user.refreshTokens.length > MAX_REFRESH_TOKENS) {
+      user.refreshTokens = user.refreshTokens.slice(-MAX_REFRESH_TOKENS);
+    }
     await user.save();
 
     return {
@@ -111,7 +136,8 @@ class AuthService {
       }
 
       // 检查刷新令牌是否在用户的令牌列表中
-      const tokenExists = user.refreshTokens.some((t) => t.token === refreshToken);
+      // 检查刷新令牌是否在用户的令牌列表中（库内为哈希值）
+      const tokenExists = user.refreshTokens.some((t) => t && t.token === hashToken(refreshToken));
       if (!tokenExists) {
         throw new Error('无效的刷新令牌');
       }
@@ -150,7 +176,8 @@ class AuthService {
     if (user && user.refreshTokens && Array.isArray(user.refreshTokens)) {
       // 从数据库中删除该刷新令牌
       if (refreshToken) {
-        user.refreshTokens = user.refreshTokens.filter((t) => t && t.token !== refreshToken);
+        // 从数据库中删除该刷新令牌（库内为哈希值，比对前同样哈希）
+        user.refreshTokens = user.refreshTokens.filter((t) => t && t.token !== hashToken(refreshToken));
       } else {
         // 如果没有提供refreshToken，清除所有令牌（登出所有设备）
         user.refreshTokens = [];
@@ -174,7 +201,7 @@ class AuthService {
    * 更新用户信息
    */
   async updateProfile(userId, data) {
-    const { username, avatar } = data;
+    const { username, email, avatar } = data;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -188,6 +215,15 @@ class AuthService {
         throw new Error('用户名已被使用');
       }
       user.username = username;
+    }
+
+    // 如果更改邮箱，检查是否已被使用（与注册一致规范化为小写）
+    if (email && email.toLowerCase() !== user.email) {
+      const existingEmail = await User.findOne({ email: email.toLowerCase() });
+      if (existingEmail) {
+        throw new Error('邮箱已被使用');
+      }
+      user.email = email.toLowerCase();
     }
 
     if (avatar) {

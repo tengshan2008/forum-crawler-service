@@ -20,6 +20,15 @@ const apiClient = axios.create({
   withCredentials: true, // 允许携带cookie
 });
 
+// 请求拦截器：为需认证接口附加 Bearer token（与 api.js 行为一致，authMiddleware 仅认 Authorization 头）
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // 登录功能
 export const login = async (email, password) => {
   const response = await apiClient.post('/auth/login', { email, password });

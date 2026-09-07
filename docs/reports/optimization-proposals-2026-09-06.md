@@ -146,8 +146,9 @@
 | **P2** ✅ 已完成（2026-09-07） | F2 useTasks hook 抽取、D2 任务日志展示、D4 队列取消/重试 | 构建通过 + 后端状态机测试守护 |
 | **持续** | D6 API 文档同步 | ✅ 已完成（2026-09-07，见 CHANGELOG v2.3.0）：api.md 统一响应/认证/限流/白名单/新端点 |
 | **持续** | D5 文档治理 | ✅ 已完成（2026-09-07）：features 24→10 篇、历史变体入 archive、文档同步约定写入 development.md |
-| **持续（新发现）** | 修复修改密码前后端不一致：后端 `PUT /api/auth/password`，前端 api.js/authService.js 调用路径均过时 | 端到端验证修改密码可用 |
-| **持续** | S4/S5/F4、sendSuccess helper 向 auth/admin/browse controller 推广（响应结构已统一，helper 为机械重构） | 每次变更入验收清单 |
+| **持续（新发现）** | 修复修改密码前后端不一致 | ✅ 已完成（2026-09-07，见 CHANGELOG v2.3.1）：前后端统一 PUT /api/auth/password；updateProfile 端到端同步修复（后端补 email 支持）；changePassword 收敛为 authService 单一实现 |
+| **持续** | S4/S5/F4 | ✅ 已完成（2026-09-07，见 CHANGELOG v2.4.0）：S4 刷新令牌哈希入库+上限 10、S5 静态资源统一 CORS 白名单、F4 令牌存储风险记录入 api.md |
+| **持续** | sendSuccess helper 推广（B3，顺序 post→auth→admin→browse） | ✅ 全部完成：post v2.2.0、auth v2.5.0（+20 单测）、admin v2.6.0（+21 单测）、browse v2.7.0（service 下沉，+53 单测） |
 
 ---
 

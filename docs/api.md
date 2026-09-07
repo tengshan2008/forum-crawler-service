@@ -5,6 +5,8 @@
 - **基础 URL**: `http://localhost:5000/api`（生产环境经前端 nginx 同源代理 `/api`）
 - **认证方式**: JWT Bearer Token。除 `POST /api/auth/register`、`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`GET /health` 外，所有接口均需在请求头携带 `Authorization: Bearer <accessToken>`
 - **限流**: 认证相关接口（register/login/refresh）按 IP 限流，每 15 分钟 20 次，超限返回 429
+- **令牌存储（F4 风险记录，v2.4.0）**: accessToken 存于浏览器 localStorage（存在 XSS 窃取面，短期接受该风险），refreshToken 走 httpOnly Cookie，数据库仅存 SHA-256 哈希且单用户上限 10 个（超出裁剪最旧）；长期方向为评估 accessToken 收敛至 httpOnly Cookie + CSRF 防护
+- **静态资源跨域（S5，v2.4.0）**: `/public` 不再单独放开 `Access-Control-Allow-Origin: *`，与 API 一致走 CORS 白名单（`<img>` 引用不受 CORS 限制，CORP 头由 helmet 全局提供）
 - **响应格式**: JSON（统一成功/错误结构见下）
 - **角色**: 普通用户仅可访问本人数据；管理员接口（如 `GET /api/tasks/crawler/stats`、`/api/admin/*`）要求 `admin` 角色，越权返回 403
 
@@ -90,10 +92,10 @@ POST /api/auth/logout
 ### 当前用户 / 资料 / 密码
 ```
 GET  /api/auth/me          # 获取当前登录用户
-PUT  /api/auth/profile     # 更新资料（username 3-30 字符）
+PUT  /api/auth/profile     # 更新资料：{ username(3-30, 可选), email(可选, 唯一性校验), avatar(可选) }，成功后前端同步刷新本地用户缓存
 PUT  /api/auth/password    # 修改密码：{ oldPassword, newPassword(≥8), confirmPassword }
 ```
-> 修改密码端点为 `PUT /api/auth/password`，前端（Settings 页面、api.js / authService.js）已统一走该端点（v2.3.1 修复端到端不可用问题）。
+> 修改密码端点为 `PUT /api/auth/password`，前端统一经 `authService.changePassword` 调用该端点（v2.3.1 修复端到端不可用问题；实现已合并，api.js 不再有重复导出）。
 
 ---
 

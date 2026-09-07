@@ -49,7 +49,8 @@ router.put(
   '/profile',
   authMiddleware,
   [
-    body('username').optional().isLength({ min: 3, max: 30 }).withMessage('用户名长度必须在3到30个字符之间')
+    body('username').optional().isLength({ min: 3, max: 30 }).withMessage('用户名长度必须在3到30个字符之间'),
+    body('email').optional().isEmail().withMessage('邮箱格式不正确')
   ],
   authController.updateProfile
 );

@@ -60,7 +60,9 @@ const userSchema = new mongoose.Schema(
         createdAt: {
           type: Date,
           default: Date.now,
-          expires: 2592000, // 30 days TTL
+          // 安全：禁止在此加 expires。Mongo TTL 索引作用于整条用户文档，
+          // refreshTokens 数组中最旧令牌满 30 天时会把整个用户账号删除（账号消失 bug 根因）。
+          // 刷新令牌的过期清理由 authService 登录时在应用层完成。
         },
       },
     ],
@@ -92,7 +94,6 @@ const userSchema = new mongoose.Schema(
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
 userSchema.index({ createdAt: -1 });
-userSchema.index({ 'refreshTokens.createdAt': 1 });
 
 // 账户锁定检查方法
 userSchema.methods.isAccountLocked = function () {

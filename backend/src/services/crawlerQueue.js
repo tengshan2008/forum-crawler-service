@@ -67,6 +67,19 @@ async function getQueueStats() {
   };
 }
 
+// 移除指定任务在等待/延迟队列中的 job（D4 取消任务）
+// running 中的 job 由 Bull 锁定无法移除；返回是否成功移除了至少一个 job
+async function removeQueuedTask(taskId) {
+  const jobs = await crawlerQueue.getJobs(['waiting', 'delayed']);
+  const matched = jobs.filter((job) => job.data && job.data.taskId === taskId);
+  if (matched.length === 0) {
+    return false;
+  }
+  await Promise.all(matched.map((job) => job.remove()));
+  console.log(`已从队列移除任务 ${taskId} 的 ${matched.length} 个待执行 job`);
+  return true;
+}
+
 // 清空队列
 async function clearQueue() {
   await crawlerQueue.empty();
