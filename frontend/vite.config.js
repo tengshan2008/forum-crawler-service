@@ -14,6 +14,11 @@ export default defineConfig({
       '/api': {
         target: proxyTarget,
         changeOrigin: true,
+        // SSE（/api/tasks/:id/events）为长连接：关闭代理层超时，
+        // 依赖后端 15s 心跳保活；http-proxy 默认流式转发不缓冲，无需额外配置。
+        // 普通 REST 请求不受影响（正常响应后连接即释放）
+        timeout: 0,
+        proxyTimeout: 0,
       },
     },
     watch: {

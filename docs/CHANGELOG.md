@@ -14,6 +14,7 @@
 - `ioredis` 由 Bull 传递依赖提升为显式依赖（package.json）
 - 测试：taskEventBus 9 例（ioredis mock：发布管道/历史升序/Last-Event-ID 过滤/订阅消息解析/终态判定/Redis 故障吞错）、taskStreamService 13 例（SSE 帧编码/快照无 id/订阅先于回放/缓冲按 id 去重/终态延迟关流/历史过期即关流/断连清理/订阅失败降级/15s 心跳）、taskController SSE 委托 2 例（鉴权快照组装、404 不发送 SSE 头）；**Jest 232 通过**（原 205）、Vitest 14、Vite 构建通过
 - 修复：`isTerminalEvent(null)` 返回 null 而非 false；收敛残留的控制器内联 SSE 实现（未导入 taskEventBus、重复 require）与重复路由注册
+- 修复（前端 SSE 复查）：终态任务在历史事件已过期（24h/500 条）时，服务端发完快照即关流但客户端未主动 `close()`，浏览器按 EventSource 规范自动重连导致每 ~3s 无限重连——snapshot 收到终态后延迟 1.5s 关闭连接（等回放帧到达），ref 校验避免误关用户切换后的新连接；Vite dev 代理对 `/api` 显式 `timeout/proxyTimeout: 0`，对齐生产 Nginx `proxy_buffering off`，长连接不被代理层中断
 - 运维：Nginx `/api` 需 `proxy_buffering off` + `proxy_read_timeout 3600s`（见 deployment.md）；仍在运行旧镜像的执行节点不发布事件，需部署新版本后全链路生效
 
 ## 版本 2.7.0 - B3 收官：browseController 变薄 + browseService 下沉

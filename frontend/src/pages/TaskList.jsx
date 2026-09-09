@@ -102,14 +102,30 @@ const TaskList = () => {
       es.addEventListener('snapshot', (e) => {
         try {
           const d = JSON.parse(e.data);
+          const terminal = d.status === 'completed' || d.status === 'failed';
           setLogState((prev) => ({
             ...prev,
             loading: false,
             live: d.status === 'running',
             exists: true,
             status: d.status,
-            progress: typeof d.progress === 'number' ? d.progress : prev.progress,
+            progress:
+              d.status === 'completed'
+                ? 100
+                : typeof d.progress === 'number'
+                  ? d.progress
+                  : prev.progress,
           }));
+          if (terminal) {
+            // 任务已是终态：历史回放紧随其后（含终态事件时由 status 处理器幂等关闭）。
+            // 历史已过期、不含终态事件时后端发完即关流——客户端必须主动 close()，
+            // 否则浏览器按 EventSource 规范自动重连，终态任务会每 ~3s 无限重连。
+            // 延迟关闭以保证回放的日志帧先到达；ref 校验避免关掉用户切换后的新连接。
+            setTimeout(() => {
+              if (eventSourceRef.current === es) closeEventSource();
+            }, 1500);
+            fetchTasks();
+          }
         } catch {
           setLogState((prev) => ({ ...prev, loading: false }));
         }
