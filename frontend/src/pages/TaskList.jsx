@@ -1,14 +1,31 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
 import { useTasks } from '../hooks/useTasks';
 import dayjs from 'dayjs';
 
+// 任务状态展示映射：表格与日志弹窗共用，保证中文标签口径一致
+const STATUS_META = {
+  pending: { label: '等待中', color: 'default' },
+  running: { label: '执行中', color: 'processing' },
+  paused: { label: '已暂停', color: 'warning' },
+  completed: { label: '已完成', color: 'success' },
+  failed: { label: '失败', color: 'error' },
+};
+
+// 任务类型中文映射（与新建/编辑表单的选项保持一致）
+const TASK_TYPE_LABELS = {
+  novel: '小说',
+  image: '图片',
+  mixed: '混合',
+};
+
 const TaskList = () => {
   const {
     tasks, loading, pagination, setPagination, crawlTypeFilter, setCrawlTypeFilter,
+    statusFilter, setStatusFilter, keyword, setKeyword,
     fetchTasks, deleteTask, startTask, pauseTask, cancelTask, retryTask,
   } = useTasks();
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -59,6 +76,26 @@ const TaskList = () => {
 
   const handlePreview = (taskId) => {
     navigate(`/preview/${taskId}`);
+  };
+
+  // 操作列「更多」下拉中的删除：Modal 二次确认（Popconfirm 无法包裹下拉菜单项）
+  const handleDeleteConfirm = (task) => {
+    Modal.confirm({
+      title: '确认删除该任务？',
+      content: task.name ? `任务：${task.name}` : '删除后不可恢复',
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: () => deleteTask(task._id),
+    });
+  };
+
+  // 搜索/筛选变化时回到第一页（keyword 仅在搜索/清空时提交）
+  const resetToFirstPage = () => setPagination((prev) => ({ ...prev, current: 1 }));
+
+  const handleKeywordSearch = (value) => {
+    setKeyword(value);
+    resetToFirstPage();
   };
 
   // REST 兜底：SSE 不可用（旧后端/网络失败）时退回 /logs 接口
@@ -243,14 +280,6 @@ const TaskList = () => {
   }, [editingTask, fetchTasks, form]);
 
 
-  const statusColors = {
-    pending: 'default',
-    running: 'processing',
-    paused: 'warning',
-    completed: 'success',
-    failed: 'error',
-  };
-
   const columns = [
     {
       title: '任务名称',
@@ -282,18 +311,37 @@ const TaskList = () => {
     },
     {
       title: '论坛地址',
-      dataIndex: 'forumUrl',
       key: 'forumUrl',
-      render: (url) => (
-        <a href={url} target="_blank" rel="noopener noreferrer">
-          {url}
-        </a>
-      ),
+      render: (_, record) => {
+        // 单帖采集存 forumUrl，批量采集存 sectionUrl，两者取其一展示
+        const url = record.forumUrl || record.sectionUrl;
+        if (!url) return <span style={{ color: '#999' }}>-</span>;
+        return (
+          <Tooltip title={url} placement="topLeft">
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-block',
+                maxWidth: '220px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                verticalAlign: 'bottom',
+              }}
+            >
+              {url}
+            </a>
+          </Tooltip>
+        );
+      },
     },
     {
       title: '类型',
       dataIndex: 'taskType',
       key: 'taskType',
+      render: (taskType) => TASK_TYPE_LABELS[taskType] || taskType || '-',
     },
     {
       title: '采集类型',
@@ -311,13 +359,21 @@ const TaskList = () => {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      render: (status) => <Tag color={statusColors[status]}>{status}</Tag>,
+      render: (status) => {
+        const meta = STATUS_META[status];
+        return <Tag color={meta?.color || 'default'}>{meta?.label || status}</Tag>;
+      },
     },
     {
       title: '进度',
       dataIndex: 'progress',
       key: 'progress',
-      render: (progress) => `${progress}%`,
+      width: 160,
+      render: (progress, record) => {
+        const pct = typeof progress === 'number' ? Math.min(100, Math.max(0, progress)) : 0;
+        const barStatus = record.status === 'failed' ? 'exception' : record.status === 'running' ? 'active' : 'normal';
+        return <Progress size="small" percent={pct} status={barStatus} />;
+      },
     },
     {
       title: '爬取数量',
@@ -355,72 +411,95 @@ const TaskList = () => {
     {
       title: '操作',
       key: 'action',
-      render: (_, record) => (
-        <Space size="small">
-          {record.status === 'pending' && (
-            <Button type="primary" size="small" icon={<PlayCircleOutlined />} onClick={() => startTask(record._id)}>
-              开始
-            </Button>
-          )}
-          {record.status === 'running' && (
-            <Button type="primary" danger size="small" icon={<PauseOutlined />} onClick={() => pauseTask(record._id)}>
-              暂停
-            </Button>
-          )}
-          {record.status === 'failed' && (
-            <Button type="primary" size="small" icon={<RedoOutlined />} onClick={() => retryTask(record._id)}>
-              重试
-            </Button>
-          )}
-          <Button size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(record._id)}>
-            日志
-          </Button>
-          <Button type="primary" ghost size="small" icon={<EditOutlined />} onClick={() => handleEditTask(record)}>
-            编辑
-          </Button>
-          <Button type="primary" ghost size="small" icon={<EyeOutlined />} onClick={() => handlePreview(record._id)}>
-            预览
-          </Button>
-          {record.status === 'pending' && (
-            <Popconfirm title="确认取消该排队任务?" onConfirm={() => cancelTask(record._id)}>
-              <Button type="primary" danger ghost size="small" icon={<StopOutlined />}>
-                取消
-              </Button>
-            </Popconfirm>
-          )}
-          <Popconfirm title="确认删除?" onConfirm={() => deleteTask(record._id)}>
-            <Button type="primary" danger ghost size="small" icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
+      width: 150,
+      render: (_, record) => {
+        // 低频操作收进「更多」下拉，保持行内视觉干净
+        const moreItems = [
+          { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => handleEditTask(record) },
+          { key: 'preview', icon: <EyeOutlined />, label: '预览', onClick: () => handlePreview(record._id) },
+          { type: 'divider' },
+          { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDeleteConfirm(record) },
+        ];
+        return (
+          <Space size={0}>
+            {record.status === 'pending' && (
+              <Tooltip title="开始">
+                <Button type="text" size="small" icon={<PlayCircleOutlined />} onClick={() => startTask(record._id)} />
+              </Tooltip>
+            )}
+            {record.status === 'running' && (
+              <Tooltip title="暂停">
+                <Button type="text" size="small" danger icon={<PauseOutlined />} onClick={() => pauseTask(record._id)} />
+              </Tooltip>
+            )}
+            {record.status === 'failed' && (
+              <Tooltip title="重试">
+                <Button type="text" size="small" icon={<RedoOutlined />} onClick={() => retryTask(record._id)} />
+              </Tooltip>
+            )}
+            {record.status === 'pending' && (
+              <Popconfirm title="确认取消该排队任务?" onConfirm={() => cancelTask(record._id)}>
+                <Button type="text" size="small" danger icon={<StopOutlined />} title="取消排队" />
+              </Popconfirm>
+            )}
+            <Tooltip title="日志">
+              <Button type="text" size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(record._id)} />
+            </Tooltip>
+            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+              <Button type="text" size="small" icon={<MoreOutlined />} title="更多操作" />
+            </Dropdown>
+          </Space>
+        );
+      },
     },
   ];
 
   return (
     <div className="task-list">
       <div style={{ marginBottom: 16 }}>
-        <Space>
+        <Space wrap>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAddTask}>
             新建任务
           </Button>
-          <Button icon={<PlayCircleOutlined rotate={90} />} onClick={fetchTasks}>
+          <Button icon={<ReloadOutlined />} onClick={() => fetchTasks()}>
             刷新
           </Button>
+          <Input.Search
+            placeholder="搜索任务名称"
+            allowClear
+            defaultValue={keyword}
+            style={{ width: 220 }}
+            onSearch={handleKeywordSearch}
+            onChange={(e) => {
+              // 点清空按钮或退格清空时立即恢复全量（清空按钮不触发 onSearch）
+              if (e.target.value === '') handleKeywordSearch('');
+            }}
+          />
+          <Select
+            placeholder="状态"
+            style={{ width: 130 }}
+            allowClear
+            value={statusFilter}
+            onChange={(value) => {
+              setStatusFilter(value ?? null);
+              resetToFirstPage();
+            }}
+            options={Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label }))}
+          />
           <Select
             placeholder="采集类型"
             style={{ width: 150 }}
             allowClear
             value={crawlTypeFilter}
             onChange={(value) => {
-              setCrawlTypeFilter(value);
+              setCrawlTypeFilter(value ?? null);
               setPagination({ current: 1, pageSize: 10, total: 0 });
             }}
-          >
-            <Select.Option value="single">单帖采集</Select.Option>
-            <Select.Option value="batch">批量采集</Select.Option>
-          </Select>
+            options={[
+              { value: 'single', label: '单帖采集' },
+              { value: 'batch', label: '批量采集' },
+            ]}
+          />
         </Space>
       </div>
 
@@ -626,8 +705,8 @@ const TaskList = () => {
       >
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           {logState.status && (
-            <Tag color={statusColors[logState.status] || 'default'}>
-              {({ pending: '等待中', running: '执行中', paused: '已暂停', completed: '已完成', failed: '失败' })[logState.status] || logState.status}
+            <Tag color={STATUS_META[logState.status]?.color || 'default'}>
+              {STATUS_META[logState.status]?.label || logState.status}
             </Tag>
           )}
           {typeof logState.progress === 'number' && (

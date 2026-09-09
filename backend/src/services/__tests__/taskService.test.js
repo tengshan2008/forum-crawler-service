@@ -79,6 +79,39 @@ describe('taskService 角色数据可见性', () => {
     expect(mockTask.find.mock.calls[0][0]).toEqual({});
   });
 
+  it('listTasks：keyword 按任务名做大小写不敏感的模糊匹配，且转义正则元字符', async () => {
+    mockTask.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([]),
+    });
+    mockTask.countDocuments.mockResolvedValue(0);
+
+    await service.listTasks({ keyword: '  我的任务(1)  ' }, { role: 'admin', userId: 'a1' });
+
+    const filter = mockTask.find.mock.calls[0][0];
+    expect(filter.name).toBeInstanceOf(RegExp);
+    expect(filter.name.flags).toBe('i');
+    // 正则元字符 ( ) 必须被转义，防止用户输入破坏查询语义
+    expect(filter.name.source).toContain('\\(');
+    expect(filter.name.source).toContain('\\)');
+    expect(filter.name.test('xx我的任务(1)yy')).toBe(true);
+    expect(filter.name.test('其他任务')).toBe(false);
+  });
+
+  it('listTasks：空白 keyword 不产生 name 过滤条件', async () => {
+    mockTask.find.mockReturnValue({
+      sort: jest.fn().mockReturnThis(),
+      skip: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockResolvedValue([]),
+    });
+    mockTask.countDocuments.mockResolvedValue(0);
+
+    await service.listTasks({ keyword: '   ' }, { role: 'admin', userId: 'a1' });
+
+    expect(mockTask.find.mock.calls[0][0]).toEqual({});
+  });
+
   it('getTask：普通用户查他人任务返回 404（查询被所有权约束）', async () => {
     mockTask.findOne.mockResolvedValue(null);
 

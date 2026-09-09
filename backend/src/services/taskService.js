@@ -22,6 +22,11 @@ function buildVisibilityFilter(user) {
   return user.role === 'admin' ? {} : { userId: user.userId };
 }
 
+// 转义正则特殊字符，避免 keyword 中的元字符（如 ( ) . *）破坏模糊查询语义
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // 单条查询的所有权约束（管理员不受限）
 function scopedQuery(taskId, user) {
   const query = { _id: taskId };
@@ -32,7 +37,7 @@ function scopedQuery(taskId, user) {
 }
 
 async function listTasks(query, user) {
-  const { status, crawlType, page = 1, limit = 10, sort = '-createdAt' } = query;
+  const { status, crawlType, keyword, page = 1, limit = 10, sort = '-createdAt' } = query;
 
   const filter = buildVisibilityFilter(user);
   if (status) {
@@ -40,6 +45,11 @@ async function listTasks(query, user) {
   }
   if (crawlType) {
     filter.crawlType = crawlType;
+  }
+  const trimmedKeyword = (keyword || '').trim();
+  if (trimmedKeyword) {
+    // 按任务名大小写不敏感模糊匹配（自动取名任务也可被搜到）
+    filter.name = new RegExp(escapeRegExp(trimmedKeyword), 'i');
   }
 
   const skip = (page - 1) * limit;

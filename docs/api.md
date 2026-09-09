@@ -113,6 +113,7 @@ GET /api/tasks
 - `limit` (integer, optional): 每页数量，默认为 10
 - `status` (string, optional): 任务状态过滤 (pending, running, paused, completed, failed)
 - `crawlType` (string, optional): 采集类型过滤 (single, batch)
+- `keyword` (string, optional): 按任务名称模糊搜索（大小写不敏感，正则元字符已转义；空白字符串忽略）
 - `sort` (string, optional): 排序字段，默认为 -createdAt
 
 > 普通用户仅返回本人任务；管理员返回全部。

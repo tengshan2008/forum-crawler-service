@@ -1,5 +1,16 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.9.0 - 任务列表 UX 整改（P0 数据展示修复 + P1 效率提升）
+**发布日期**: 2026-09-09
+**状态**: ✅ 已完成
+
+- P0 修复：任务列表「论坛地址」列对批量采集任务整列空白——列渲染改为 `forumUrl || sectionUrl`（单帖存 forumUrl、批量存 sectionUrl），长链接省略号截断 + Tooltip；「类型」列新增中文映射（novel/image/mixed → 小说/图片/混合）；「状态」Tag 中文化（等待中/执行中/已暂停/已完成/失败），表格与日志弹窗共用 `STATUS_META` 常量，删除重复映射
+- P1 后端：`GET /api/tasks` 新增 `keyword` 查询参数，按任务名称大小写不敏感模糊匹配（`escapeRegExp` 转义正则元字符，空白字符串忽略）；新增 taskService 单测 2 例
+- P1 前端：工具栏新增任务名搜索框（Input.Search）与状态筛选下拉；存在 running/pending 任务时列表每 5s 静默轮询（不触发整表 loading 闪烁），全部终态后自动停止；进度列改为 antd `Progress` 进度条（running=active、failed=exception）
+- P1 前端：操作列瘦身——图标按钮 + Tooltip，编辑/预览/删除收进「更多」Dropdown（删除走 Modal.confirm），消除满屏红色删除按钮；刷新按钮图标由 `PlayCircleOutlined rotate=90` 改为语义正确的 `ReloadOutlined`
+- P1 布局：修复内容区全出血——`App.jsx` Content 不再以内联样式覆盖 CSS（margin:0/padding:0），恢复由 `App.css` 统一控制灰底 `#f5f5f5` + 24px 内边距（移动端 16px），与各页面自带白卡模式一致，消除双层卡片
+- 文档：`docs/api.md` 同步 `keyword` 参数说明
+
 ## 版本 2.8.0 - 任务执行进度/日志 SSE 实时推送（跨实例）
 **发布日期**: 2026-09-09
 **状态**: ✅ 已完成

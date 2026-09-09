@@ -121,7 +121,7 @@ function LayoutContent() {
           </div>
         </Header>
 
-        <Content style={{ margin: 0, padding: 0, background: '#f5f5f5', minHeight: 'calc(100vh - 64px)' }}>
+        <Content>
           <Outlet />
         </Content>
       </Layout>

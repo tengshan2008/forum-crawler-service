@@ -46,12 +46,11 @@
   font-weight: 600;
 }
 
+/* 内容区只负责灰底与呼吸间距；白色卡片由各页面根容器（如 .task-list）提供 */
 .ant-layout-content {
-  margin: 24px 16px;
   padding: 24px;
-  background: #fff;
-  border-radius: 2px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  background: #f5f5f5;
+  min-height: calc(100vh - 64px);
 }
 
 .task-list {
@@ -77,7 +76,6 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
   .ant-layout-content {
-    margin: 16px 8px;
     padding: 16px;
   }
 
