@@ -13,8 +13,12 @@ jest.mock('../../services/crawlerQueue', () => ({
   addCrawlerTask: jest.fn(),
   getQueueStats: jest.fn(),
 }));
+jest.mock('../../services/taskStreamService', () => ({
+  openTaskEventStream: jest.fn().mockResolvedValue(jest.fn()),
+}));
 
 const controller = require('../taskController');
+const { openTaskEventStream } = require('../../services/taskStreamService');
 const AppError = require('../../utils/AppError');
 
 // 构造可链式调用的 res mock，错误经 catchAsync 交给 next
@@ -192,5 +196,57 @@ describe('taskController.getAllTasks 权限过滤', () => {
 
     const filter = mockTask.find.mock.calls[0][0];
     expect(filter).toEqual({ status: 'pending' });
+  });
+});
+
+describe('taskController.streamTaskEvents (SSE)', () => {
+  it('鉴权通过后委托 openTaskEventStream，传入快照与 Last-Event-ID', async () => {
+    mockTask.findOne.mockResolvedValue({
+      _id: 't1',
+      status: 'running',
+      progress: 10,
+      crawledItems: 2,
+      name: '我的任务',
+    });
+
+    const req = {
+      params: { id: 't1' },
+      user: { role: 'user', userId: 'u1' },
+      headers: { 'last-event-id': '7' },
+      query: {},
+    };
+    await controller.streamTaskEvents(req, makeRes(), jest.fn());
+
+    // 所有权过滤：普通用户带 userId
+    expect(mockTask.findOne).toHaveBeenCalledWith({ _id: 't1', userId: 'u1' });
+    expect(openTaskEventStream).toHaveBeenCalledWith(
+      expect.anything(),
+      't1',
+      expect.objectContaining({
+        lastEventId: '7',
+        snapshot: expect.objectContaining({
+          taskId: 't1',
+          status: 'running',
+          progress: 10,
+          crawledItems: 2,
+          name: '我的任务',
+        }),
+      })
+    );
+  });
+
+  it('任务不存在时抛 404（SSE 头未发送，错误走 errorHandler）', async () => {
+    mockTask.findOne.mockResolvedValue(null);
+    const next = jest.fn();
+
+    await controller.streamTaskEvents(
+      { params: { id: 'missing' }, user: { role: 'admin', userId: 'a1' }, headers: {}, query: {} },
+      makeRes(),
+      next
+    );
+
+    expect(next).toHaveBeenCalled();
+    expect(next.mock.calls[0][0].statusCode).toBe(404);
+    expect(openTaskEventStream).not.toHaveBeenCalled();
   });
 });

@@ -6,9 +6,13 @@ jest.mock('../../services/taskService', () => ({
 jest.mock('../../services/crawlerExecutor', () => ({
   executeCrawler: jest.fn(),
 }));
+jest.mock('../../services/taskEventBus', () => ({
+  publish: jest.fn().mockResolvedValue(undefined),
+}));
 
 const { processCrawlerJob } = require('../crawlerQueueWorker');
 const taskService = require('../../services/taskService');
+const taskEventBus = require('../../services/taskEventBus');
 const { executeCrawler } = require('../../services/crawlerExecutor');
 
 const makeJob = (overrides = {}) => ({
@@ -39,6 +43,14 @@ describe('crawlerQueueWorker 队列消费（B1/D3 状态机收敛）', () => {
     expect(taskService.markCompleted).toHaveBeenCalledWith('t1', crawlResult);
     expect(job.progress).toHaveBeenCalledWith(100);
     expect(result).toBe(crawlResult);
+
+    // SSE 状态事件：running + completed
+    expect(taskEventBus.publish).toHaveBeenCalledWith('t1', 'status', { status: 'running' });
+    expect(taskEventBus.publish).toHaveBeenCalledWith(
+      't1',
+      'status',
+      expect.objectContaining({ status: 'completed', progress: 100 })
+    );
   });
 
   it('执行失败：markFailed 记录后向 Bull 重抛（保留重试/退避机制）', async () => {
@@ -52,6 +64,12 @@ describe('crawlerQueueWorker 队列消费（B1/D3 状态机收敛）', () => {
     expect(taskService.markFailed).toHaveBeenCalledWith('t1', error);
     expect(taskService.markCompleted).not.toHaveBeenCalled();
     expect(job.progress).not.toHaveBeenCalled();
+    // SSE：失败也发布终态事件
+    expect(taskEventBus.publish).toHaveBeenCalledWith(
+      't1',
+      'status',
+      expect.objectContaining({ status: 'failed' })
+    );
   });
 
   it('markRunning 失败同样走 markFailed 并重抛', async () => {

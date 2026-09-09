@@ -3,6 +3,12 @@ const fs = require('fs');
 const path = require('path');
 const Task = require('../models/Task');
 const config = require('../config/config');
+const taskEventBus = require('./taskEventBus');
+
+// 事件发布为 fire-and-forget：Redis 故障只记录日志，不影响爬虫执行
+function publishEvent(taskId, type, data) {
+  taskEventBus.publish(taskId, type, data).catch(() => {});
+}
 
 // 爬虫脚本路径解析：
 // 1. 环境变量 CRAWLER_SCRIPT_PATH（本地非 Docker 运行时显式指定）
@@ -101,38 +107,49 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
 
       // 处理标准输出
       crawlerProcess.stdout.on('data', (data) => {
-        output += data.toString();
-        console.log(`[爬虫输出] ${data.toString().trim()}`);
+        const text = data.toString();
+        output += text;
+        console.log(`[爬虫输出] ${text.trim()}`);
 
         // 尝试解析进度信息
         try {
-          const lines = data.toString().trim().split('\n');
-          for (const line of lines) {
+          const lines = text.split('\n');
+          for (const rawLine of lines) {
+            const line = rawLine.replace(/\s+$/, '');
+            if (!line) continue;
+
+            // 原始日志行推给 SSE 日志流（结构化行同时推送，前端日志区按行展示）
+            publishEvent(taskId, 'log', { line, stream: 'stdout' });
+
             // 标准格式: PROGRESS:XX
             if (line.includes('PROGRESS:')) {
-              const progress = parseInt(line.split('PROGRESS:')[1]);
+              const progress = parseInt(line.split('PROGRESS:')[1], 10);
               updateTaskProgress(taskId, progress);
+              publishEvent(taskId, 'progress', { progress });
             }
             // 替代格式: [图片下载] 进度: X/Y
             else if (line.includes('[图片下载] 进度:')) {
               const match = line.match(/进度:\s*(\d+)\/(\d+)/);
               if (match) {
-                const current = parseInt(match[1]);
-                const total = parseInt(match[2]);
+                const current = parseInt(match[1], 10);
+                const total = parseInt(match[2], 10);
                 const progress = total > 0 ? Math.round((current / total) * 100) : 0;
                 updateTaskProgress(taskId, progress);
+                publishEvent(taskId, 'progress', { progress });
               }
             }
             // 爬取数量: CRAWLED:XX
             else if (line.includes('CRAWLED:')) {
-              const count = parseInt(line.split('CRAWLED:')[1]);
+              const count = parseInt(line.split('CRAWLED:')[1], 10);
               updateTaskCrawledCount(taskId, count);
+              publishEvent(taskId, 'crawled', { count });
             }
             // 页面标题: TITLE:XXX
             else if (line.includes('TITLE:')) {
               const title = line.split('TITLE:')[1]?.trim();
               if (title) {
                 crawlerOutput.title = title;
+                publishEvent(taskId, 'title', { title });
               }
             }
             // 爬虫返回的 JSON 结果: RESULT:{...}
@@ -153,8 +170,13 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
 
       // 处理标准错误
       crawlerProcess.stderr.on('data', (data) => {
-        errorOutput += data.toString();
-        console.error(`[爬虫错误] ${data.toString().trim()}`);
+        const text = data.toString();
+        errorOutput += text;
+        console.error(`[爬虫错误] ${text.trim()}`);
+        text.split('\n').forEach((rawLine) => {
+          const line = rawLine.replace(/\s+$/, '');
+          if (line) publishEvent(taskId, 'log', { line, stream: 'stderr' });
+        });
       });
 
       // 处理进程结束

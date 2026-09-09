@@ -23,5 +23,7 @@ router.post('/:id/pause', taskController.pauseTask);
 router.post('/:id/resume', taskController.resumeTask);
 router.post('/:id/cancel', taskController.cancelTask);
 router.get('/:id/logs', taskController.getTaskLogs);
+// SSE 实时事件流（EventSource 经 ?access_token= 鉴权，见 authMiddleware）
+router.get('/:id/events', taskController.streamTaskEvents);
 
 module.exports = router;

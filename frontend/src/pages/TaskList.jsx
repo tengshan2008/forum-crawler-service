@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -14,8 +14,36 @@ const TaskList = () => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [form] = Form.useForm();
-  const [logState, setLogState] = useState({ open: false, loading: false, logs: [], exists: true });
+  // 日志弹窗状态：SSE 实时推送（snapshot/log/progress/status），REST 仅作兜底
+  const [logState, setLogState] = useState({
+    open: false,
+    loading: true,
+    logs: [],
+    exists: true,
+    status: null,
+    progress: null,
+    live: false,
+  });
+  const eventSourceRef = useRef(null);
+  const restFallbackRef = useRef(false);
+  const logPreRef = useRef(null);
   const navigate = useNavigate();
+
+  // 关闭 SSE 连接（关弹窗/卸载/终态时必须调用，避免连接泄漏与自动重连）
+  const closeEventSource = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => closeEventSource, [closeEventSource]);
+
+  // 日志追加时自动滚到底部
+  useEffect(() => {
+    const el = logPreRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [logState.logs]);
 
   const handleAddTask = () => {
     setEditingTask(null);
@@ -33,19 +61,115 @@ const TaskList = () => {
     navigate(`/preview/${taskId}`);
   };
 
-  // D2：查看任务执行日志（crawler/logs/task_<id>.log 尾部）
-  const handleViewLogs = useCallback(async (taskId) => {
-    setLogState({ open: true, loading: true, logs: [], exists: true });
-    try {
-      const response = await taskApi.logs(taskId, { lines: 200 });
-      const { logs, exists } = response.data.data;
-      setLogState({ open: true, loading: false, logs, exists });
-    } catch (error) {
-      console.error('Error fetching task logs:', error);
-      message.error('获取任务日志失败');
-      setLogState((prev) => ({ ...prev, loading: false }));
-    }
-  }, []);
+  // REST 兜底：SSE 不可用（旧后端/网络失败）时退回 /logs 接口
+  const fetchLogsViaRest = useCallback(
+    async (taskId) => {
+      if (restFallbackRef.current) return;
+      restFallbackRef.current = true;
+      try {
+        const response = await taskApi.logs(taskId, { lines: 200 });
+        const { logs, exists } = response.data.data;
+        setLogState((prev) => ({ ...prev, loading: false, live: false, logs, exists }));
+      } catch (error) {
+        console.error('Error fetching task logs:', error);
+        setLogState((prev) => ({ ...prev, loading: false, live: false }));
+      }
+    },
+    []
+  );
+
+  // 查看任务执行日志：SSE 实时流（快照 + 历史回放 + 实时推送），REST 兜底
+  const handleViewLogs = useCallback(
+    (taskId) => {
+      closeEventSource();
+      restFallbackRef.current = false;
+      setLogState({ open: true, loading: true, logs: [], exists: true, status: null, progress: null, live: false });
+
+      let es;
+      try {
+        es = new EventSource(taskApi.eventsUrl(taskId));
+      } catch (err) {
+        console.error('EventSource 初始化失败，回退 REST:', err);
+        fetchLogsViaRest(taskId);
+        return;
+      }
+      eventSourceRef.current = es;
+
+      const appendLogLines = (lines) => {
+        setLogState((prev) => ({ ...prev, logs: [...prev.logs, ...lines].slice(-500) }));
+      };
+
+      es.addEventListener('snapshot', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          setLogState((prev) => ({
+            ...prev,
+            loading: false,
+            live: d.status === 'running',
+            exists: true,
+            status: d.status,
+            progress: typeof d.progress === 'number' ? d.progress : prev.progress,
+          }));
+        } catch {
+          setLogState((prev) => ({ ...prev, loading: false }));
+        }
+      });
+
+      es.addEventListener('log', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (d && typeof d.line === 'string') appendLogLines([d.line]);
+        } catch {
+          /* 忽略坏帧 */
+        }
+      });
+
+      es.addEventListener('progress', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          if (typeof d.progress === 'number') {
+            setLogState((prev) => ({ ...prev, progress: d.progress }));
+          }
+        } catch {
+          /* 忽略 */
+        }
+      });
+
+      es.addEventListener('status', (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          const terminal = d.status === 'completed' || d.status === 'failed';
+          setLogState((prev) => ({
+            ...prev,
+            status: d.status,
+            live: false,
+            progress: d.status === 'completed' ? 100 : prev.progress,
+          }));
+          if (terminal) {
+            // 终态：服务端会关流，客户端也主动关闭防止自动重连
+            closeEventSource();
+            fetchTasks();
+          }
+        } catch {
+          /* 忽略 */
+        }
+      });
+
+      es.onerror = () => {
+        // readyState=CLOSED 表示服务端关流或不可恢复错误；CONNECTING 是浏览器自动重连中
+        if (es.readyState === EventSource.CLOSED) {
+          setLogState((prev) => ({ ...prev, live: false }));
+          fetchLogsViaRest(taskId);
+        }
+      };
+    },
+    [closeEventSource, fetchLogsViaRest, fetchTasks]
+  );
+
+  const handleCloseLogs = useCallback(() => {
+    closeEventSource();
+    setLogState((prev) => ({ ...prev, open: false }));
+  }, [closeEventSource]);
 
   // 获取跳过原因的颜色
   const getReasonColor = (reason) => {
@@ -475,18 +599,31 @@ const TaskList = () => {
         </Form>
       </Modal>
 
-      {/* D2：任务执行日志（尾部 200 行） */}
+      {/* 任务执行日志：SSE 实时流（历史回放 + 实时推送），REST 兜底 */}
       <Modal
         title="任务执行日志"
         open={logState.open}
-        onCancel={() => setLogState((prev) => ({ ...prev, open: false }))}
+        onCancel={handleCloseLogs}
         footer={null}
         width={720}
+        destroyOnClose
       >
+        <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          {logState.status && (
+            <Tag color={statusColors[logState.status] || 'default'}>
+              {({ pending: '等待中', running: '执行中', paused: '已暂停', completed: '已完成', failed: '失败' })[logState.status] || logState.status}
+            </Tag>
+          )}
+          {typeof logState.progress === 'number' && (
+            <span style={{ color: '#666' }}>进度 {logState.progress}%</span>
+          )}
+          {logState.live && <Tag color="processing">实时</Tag>}
+        </div>
         {logState.loading ? (
           <div style={{ textAlign: 'center', padding: '32px 0' }}>加载中...</div>
-        ) : logState.exists ? (
+        ) : logState.logs.length > 0 ? (
           <pre
+            ref={logPreRef}
             style={{
               maxHeight: '480px',
               overflowY: 'auto',
@@ -503,7 +640,13 @@ const TaskList = () => {
             {logState.logs.join('\n')}
           </pre>
         ) : (
-          <span style={{ color: '#999' }}>暂无日志（任务尚未执行）</span>
+          <span style={{ color: '#999' }}>
+            {logState.status === 'running'
+              ? '任务正在执行，等待日志输出…'
+              : logState.exists === false
+                ? '暂无日志（任务尚未执行，或任务在其它执行节点运行导致日志不可见）'
+                : '暂无日志'}
+          </span>
         )}
       </Modal>
     </div>

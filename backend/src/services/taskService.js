@@ -1,6 +1,7 @@
 const Task = require('../models/Task');
 const AppError = require('../utils/AppError');
 const { addCrawlerTask, removeQueuedTask } = require('./crawlerQueue');
+const taskEventBus = require('./taskEventBus');
 const fs = require('fs').promises;
 const path = require('path');
 
@@ -279,19 +280,42 @@ async function cancelTask(taskId, user) {
   return task;
 }
 
-// 任务执行日志尾部（D2）：读取 crawler/logs/task_<taskId>.log 的最后 N 行
+// 任务执行日志尾部：
+// 首选 Redis 事件历史（跨实例可见——爬虫可能在其它节点/容器执行）；
+// Redis 无事件时（历史过期或旧版本任务）回退读本机 crawler/logs/task_<id>.log。
 const DEFAULT_LOG_LINES = 100;
 
 async function getTaskLogs(taskId, user, { lines = DEFAULT_LOG_LINES } = {}) {
   const { task } = await findAndAuthorize(taskId, user, { zh: '查看', en: 'view' });
 
+  let events = [];
+  try {
+    events = await taskEventBus.getRecent(taskId);
+  } catch (err) {
+    console.error('[任务日志] 读取事件历史失败，回退文件日志:', err.message);
+  }
+
+  const eventLines = events
+    .filter((event) => event.type === 'log' && event.data && typeof event.data.line === 'string')
+    .map((event) => event.data.line);
+
+  if (eventLines.length > 0) {
+    return {
+      task,
+      logs: eventLines.slice(-lines),
+      exists: true,
+      source: 'events',
+    };
+  }
+
+  // 回退：本机文件日志（仅同节点执行的任务可见）
   const logPath = path.join(__dirname, '..', '..', '..', 'crawler', 'logs', `task_${taskId}.log`);
   let content;
   try {
     content = await fs.readFile(logPath, 'utf-8');
   } catch (err) {
     if (err.code === 'ENOENT') {
-      return { task, logs: [], logFile: logPath, exists: false };
+      return { task, logs: [], logFile: logPath, exists: false, source: 'none' };
     }
     throw err;
   }
@@ -302,6 +326,7 @@ async function getTaskLogs(taskId, user, { lines = DEFAULT_LOG_LINES } = {}) {
     logs: allLines.slice(-lines),
     logFile: logPath,
     exists: true,
+    source: 'file',
   };
 }
 

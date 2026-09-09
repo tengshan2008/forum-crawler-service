@@ -89,6 +89,28 @@ describe('authMiddleware JWT 认证', () => {
     expect(req.user).toEqual(decoded);
     expect(next).toHaveBeenCalled();
   });
+
+  it('SSE 场景：无 Authorization 头时接受 ?access_token= 查询参数令牌', () => {
+    const decoded = { userId: 'u1', role: 'user' };
+    jwt.verify.mockReturnValue(decoded);
+
+    const req = { headers: {}, query: { access_token: 'sse-token' } };
+    const next = jest.fn();
+    authMiddleware(req, makeRes(), next);
+
+    expect(jwt.verify).toHaveBeenCalledWith('sse-token', 'test_jwt_secret');
+    expect(req.user).toEqual(decoded);
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('Authorization 头优先于查询参数令牌', () => {
+    jwt.verify.mockReturnValue({ userId: 'u1', role: 'user' });
+
+    const req = { headers: { authorization: 'Bearer header-token' }, query: { access_token: 'query-token' } };
+    authMiddleware(req, makeRes(), jest.fn());
+
+    expect(jwt.verify).toHaveBeenCalledWith('header-token', 'test_jwt_secret');
+  });
 });
 
 describe('requireRole 角色检查', () => {

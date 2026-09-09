@@ -1,5 +1,21 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.8.0 - 任务执行进度/日志 SSE 实时推送（跨实例）
+**发布日期**: 2026-09-09
+**状态**: ✅ 已完成
+
+- 背景：任务在节点 A（如 Docker 容器）执行、API 由节点 B 提供时，日志读取依赖执行节点本地文件 `crawler/logs/task_<id>.log`，任务运行中日志弹窗却显示"暂无日志（任务尚未执行）"
+- 新增 `services/taskEventBus.js`：任务事件经 Redis 中转跨实例——`PUBLISH task:events:<taskId>` 实时扇出 + `LPUSH/LTRIM` 留存最近 500 条事件（24h TTL）供晚加入/断线重连回放；发布 fire-and-forget，事件通道故障不阻塞爬虫主流程
+- 新增 `services/taskStreamService.js`：SSE 长连接协议层（`text/event-stream`、15s `: ping` 心跳、`X-Accel-Buffering: no`），**先订阅再回放**、回放期间实时事件缓冲补发并按事件 id 去重（不丢不重），支持标准 `Last-Event-ID` 断点续传，终态（completed/failed）发完即关流，客户端断开即清理 Redis 订阅连接
+- `crawlerQueueWorker` 在 markRunning/markCompleted/markFailed 后发布 `status` 事件；`crawlerExecutor` 解析爬虫 stdout/stderr 时发布 `log`/`progress`/`crawled`/`title` 事件（stdout 的 PROGRESS:/CRAWLED:/TITLE: 格式不变）
+- 新增端点 `GET /api/tasks/:id/events`（`taskRoutes.js` 注册）；`authMiddleware` 支持 `?access_token=` 查询参数鉴权（EventSource 无法自定义 Authorization 头，Header 优先），仅无 Bearer 头时兜底
+- `getTaskLogs` 改为优先读 Redis 事件历史（响应新增 `source: events|file|none`），无事件时回退本机文件日志，旧页面/旧任务不受影响
+- 前端 `TaskList` 日志弹窗改为 EventSource 驱动：连接即显任务快照（状态/进度/实时标签）、日志实时追加并自动滚底、终态自动关流并刷新列表、弹窗关闭/组件卸载必然 `close()`（含 REST `/logs` 兜底，SSE 不可用时自动降级）；运行中无日志时文案改为"任务正在执行，等待日志输出…"，不再误报"任务尚未执行"
+- `ioredis` 由 Bull 传递依赖提升为显式依赖（package.json）
+- 测试：taskEventBus 9 例（ioredis mock：发布管道/历史升序/Last-Event-ID 过滤/订阅消息解析/终态判定/Redis 故障吞错）、taskStreamService 13 例（SSE 帧编码/快照无 id/订阅先于回放/缓冲按 id 去重/终态延迟关流/历史过期即关流/断连清理/订阅失败降级/15s 心跳）、taskController SSE 委托 2 例（鉴权快照组装、404 不发送 SSE 头）；**Jest 232 通过**（原 205）、Vitest 14、Vite 构建通过
+- 修复：`isTerminalEvent(null)` 返回 null 而非 false；收敛残留的控制器内联 SSE 实现（未导入 taskEventBus、重复 require）与重复路由注册
+- 运维：Nginx `/api` 需 `proxy_buffering off` + `proxy_read_timeout 3600s`（见 deployment.md）；仍在运行旧镜像的执行节点不发布事件，需部署新版本后全链路生效
+
 ## 版本 2.7.0 - B3 收官：browseController 变薄 + browseService 下沉
 **发布日期**: 2026-09-07
 **状态**: ✅ 已完成

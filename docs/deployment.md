@@ -120,6 +120,12 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+        # SSE 任务事件流（/api/tasks/:id/events）：关闭代理缓冲并放宽读超时，
+        # 事件帧即时到达浏览器；服务端每 15s 发送 : ping 心跳保活
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
     }
 
     # 启用 HTTPS

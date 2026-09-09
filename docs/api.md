@@ -392,7 +392,7 @@ GET /api/tasks/:id/logs?lines=100
 **查询参数**
 - `lines` (integer, optional): 返回日志尾部行数，默认 100
 
-读取爬虫任务落盘日志（`crawler/logs/task_<id>.log`）的尾部。
+读取任务执行日志尾部。**数据源优先取 Redis 事件历史**（`task:events:history:<id>`，最近 500 条、留存 24 小时，只取 `log` 事件的 `line`）——爬虫进程可能在其它节点/容器执行，Redis 为跨实例共享存储；事件历史为空时回退读取执行节点本机的落盘日志 `crawler/logs/task_<id>.log`（仅同节点执行的任务可见）。响应中 `source` 标识来源：`events`（Redis 事件）/ `file`（本机文件回退）/ `none`（无日志）。实时跟踪运行中任务请用下方 10.1 SSE 事件流。
 
 **响应示例**（日志存在）
 ```json
@@ -401,17 +401,65 @@ GET /api/tasks/:id/logs?lines=100
   "data": {
     "taskId": "65d1234567890abcdef12345",
     "logs": ["开始爬虫任务 ...", "PROGRESS:50", "CRAWLED:12"],
-    "exists": true
+    "exists": true,
+    "source": "events"
   }
 }
 ```
 
-任务尚未执行、日志文件不存在时：
+任务尚未执行、且无事件历史/日志文件时：
 ```json
 {
   "success": true,
-  "data": { "taskId": "...", "logs": [], "exists": false }
+  "data": { "taskId": "...", "logs": [], "exists": false, "source": "none" }
 }
+```
+
+---
+
+### 10.1 任务执行事件流（SSE 实时推送）
+
+**请求**
+```
+GET /api/tasks/:id/events?access_token=<JWT>
+```
+
+`text/event-stream` 长连接，实时推送爬虫进度与日志。事件经 Redis pub/sub 中转（频道 `task:events:<id>`），**爬虫在任意执行节点运行都能收到**；连接建立后先回放最近事件历史（支持标准 `Last-Event-ID` 请求头断点续传），再推送实时事件。
+
+> 鉴权：`EventSource` 无法自定义请求头，除常规 `Authorization: Bearer` 外，本端点支持 `?access_token=` 查询参数传递 JWT（authMiddleware 兜底，Header 优先）。
+
+**事件类型**（SSE `event:` 字段；`data` 为 JSON；带 `id:` 用于断线续传）
+
+| event | data 字段 | 说明 |
+| --- | --- | --- |
+| `snapshot` | `{taskId, status, progress, crawledItems, name}` | 连接时任务快照（不带 id） |
+| `log` | `{line, stream}` | 一行爬虫输出，`stream` 为 `stdout`/`stderr` |
+| `progress` | `{progress}` | 进度百分比 0-99（完成由 status 事件给出 100） |
+| `crawled` | `{count}` | 已爬取数量 |
+| `title` | `{title}` | 解析到的帖子标题 |
+| `status` | `{status:'running'}` / `{status:'completed'}` / `{status:'failed',message}` | 任务状态流转；`completed`/`failed` 为终态，服务端推完后关流 |
+
+连接每 15 秒发送 `: ping` 注释心跳行保活（可透传代理空闲超时）；终态事件后服务端主动关闭连接，客户端也应主动 `close()` 避免 EventSource 自动重连。订阅在历史回放之前建立，回放期间到达的实时事件缓冲补发并按事件 id 去重，不丢不重。
+
+**事件帧示例**
+```
+id: 42
+event: progress
+data: {"progress":75}
+
+event: snapshot
+data: {"taskId":"65d1...","status":"running","progress":75,"crawledItems":3,"name":"批量采集_..."}
+```
+
+**前端用法**
+```js
+const es = new EventSource(`/api/tasks/${taskId}/events?access_token=${token}`);
+es.addEventListener('snapshot', (e) => console.log('snapshot', JSON.parse(e.data)));
+es.addEventListener('log', (e) => console.log(JSON.parse(e.data).line));
+es.addEventListener('status', (e) => {
+  const d = JSON.parse(e.data);
+  if (d.status === 'completed' || d.status === 'failed') es.close();
+});
 ```
 
 ---

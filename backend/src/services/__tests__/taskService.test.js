@@ -14,6 +14,12 @@ jest.mock('../../services/crawlerQueue', () => ({
   removeQueuedTask: jest.fn(),
   getQueueStats: jest.fn(),
 }));
+jest.mock('../../services/taskEventBus', () => ({
+  publish: jest.fn().mockResolvedValue(undefined),
+  subscribe: jest.fn(),
+  getRecent: jest.fn().mockResolvedValue([]),
+  isTerminalEvent: jest.fn(),
+}));
 jest.mock('fs', () => ({
   promises: {
     readFile: jest.fn(),
@@ -21,6 +27,7 @@ jest.mock('fs', () => ({
 }));
 
 const service = require('../taskService');
+const taskEventBus = require('../../services/taskEventBus');
 const AppError = require('../../utils/AppError');
 const path = require('path');
 
@@ -462,5 +469,50 @@ describe('taskService.getTaskLogs（D2 任务日志尾部）', () => {
     fsPromises.readFile.mockRejectedValue(Object.assign(new Error('EACCES'), { code: 'EACCES' }));
 
     await expect(service.getTaskLogs('t3', adminUser)).rejects.toThrow('EACCES');
+  });
+
+  it('Redis 事件历史存在时优先返回事件日志，且不再读本地文件（跨实例可见）', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't4' });
+    taskEventBus.getRecent.mockResolvedValue([
+      { id: 1, type: 'progress', data: { progress: 10 } },
+      { id: 2, type: 'log', data: { line: '第一行日志', stream: 'stdout' } },
+      { id: 3, type: 'log', data: { line: '第二行日志', stream: 'stderr' } },
+    ]);
+
+    const result = await service.getTaskLogs('t4', adminUser, { lines: 100 });
+
+    expect(taskEventBus.getRecent).toHaveBeenCalledWith('t4');
+    expect(fsPromises.readFile).not.toHaveBeenCalled();
+    expect(result.exists).toBe(true);
+    expect(result.source).toBe('events');
+    expect(result.logs).toEqual(['第一行日志', '第二行日志']);
+  });
+
+  it('事件历史超过 lines 上限时只返回尾部', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't5' });
+    taskEventBus.getRecent.mockResolvedValue(
+      Array.from({ length: 300 }, (_, i) => ({
+        id: i + 1,
+        type: 'log',
+        data: { line: `L${i + 1}` },
+      }))
+    );
+
+    const result = await service.getTaskLogs('t5', adminUser, { lines: 200 });
+
+    expect(result.logs).toHaveLength(200);
+    expect(result.logs[0]).toBe('L101');
+    expect(result.logs[199]).toBe('L300');
+  });
+
+  it('事件总线异常时静默回退文件日志', async () => {
+    mockTask.findById.mockResolvedValue({ _id: 't6' });
+    taskEventBus.getRecent.mockRejectedValue(new Error('redis down'));
+    fsPromises.readFile.mockResolvedValue('文件日志A\n文件日志B\n');
+
+    const result = await service.getTaskLogs('t6', adminUser);
+
+    expect(result.source).toBe('file');
+    expect(result.logs).toEqual(['文件日志A', '文件日志B']);
   });
 });

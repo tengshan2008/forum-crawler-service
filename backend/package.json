@@ -29,6 +29,7 @@
     "express-rate-limit": "^8.7.0",
     "express-validator": "^7.3.1",
     "helmet": "^7.0.0",
+    "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^7.5.0",
     "node-cron": "^4.2.1",

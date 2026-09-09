@@ -83,6 +83,12 @@ export const taskApi = {
   resume: (id) => api.post(`/tasks/${id}/resume`),
   cancel: (id) => api.post(`/tasks/${id}/cancel`),
   logs: (id, params) => api.get(`/tasks/${id}/logs`, { params }),
+  // SSE 事件流地址（EventSource 无法自定义 Authorization 头，令牌走 query 参数；
+  // 相对路径走 Vite/Nginx 的 /api 代理）
+  eventsUrl: (id) =>
+    `${API_BASE_URL}/tasks/${id}/events?access_token=${encodeURIComponent(
+      localStorage.getItem('accessToken') || ''
+    )}`,
 };
 
 // Post API

@@ -23,10 +23,12 @@ backend/
     │   ├── postController.js                 # 内容控制器
     │   └── authController.js                 # 认证控制器
     ├── services/
-    │   ├── taskService.js                    # 任务业务规则与状态机（全系统唯一）
+    │   ├── taskService.js                    # 任务业务规则与状态机（全系统唯一；日志读取优先 Redis 事件历史，回退落盘文件）
+    │   ├── taskEventBus.js                   # 任务事件总线（Redis pub/sub 扇出 + 500 条/24h 历史回放）
+    │   ├── taskStreamService.js              # SSE 长连接协议层（snapshot/回放去重/心跳/终态关流/清理）
     │   ├── crawlerQueue.js                   # Bull 队列封装
-    │   ├── crawlerQueueWorker.js             # 队列消费 worker（委托 taskService 流转状态）
-    │   ├── crawlerExecutor.js                # 爬虫子进程执行器
+    │   ├── crawlerQueueWorker.js             # 队列消费 worker（委托 taskService 流转状态 + 发布 status 事件）
+    │   ├── crawlerExecutor.js                # 爬虫子进程执行器（解析 stdout 发布 log/progress/crawled/title 事件）
     │   ├── schedulerService.js               # 定时调度（状态流转委托 taskService）
     │   ├── browseService.js                 # 浏览域业务规则（图片/小说/收藏夹查询、纯函数 filter/分页/富化）
     │   └── authService.js                    # 认证与令牌

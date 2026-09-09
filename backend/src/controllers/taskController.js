@@ -1,5 +1,6 @@
 const taskService = require('../services/taskService');
 const { getQueueStats } = require('../services/crawlerQueue');
+const { openTaskEventStream } = require('../services/taskStreamService');
 const catchAsync = require('../utils/catchAsync');
 const { sendSuccess } = require('../utils/respond');
 
@@ -87,6 +88,27 @@ exports.getTaskLogs = catchAsync(async (req, res) => {
   });
 
   sendSuccess(res, { data: { taskId: task._id, logs, exists } });
+});
+
+// SSE：任务执行事件流（进度/日志/状态实时推送，跨实例经 Redis 中转）
+// 流的协议细节（snapshot/回放/订阅/心跳/终态关流）下沉至 taskStreamService；
+// EventSource 无法自定义请求头，令牌经 ?access_token= 传递（authMiddleware 已支持）。
+exports.streamTaskEvents = catchAsync(async (req, res) => {
+  // 鉴权在写 SSE 头之前完成，失败走 errorHandler 返回 JSON
+  const task = await taskService.getTask(req.params.id, req.user);
+  const taskId = String(task._id);
+  const lastEventId = req.headers['last-event-id'] || req.query.lastEventId;
+
+  await openTaskEventStream(res, taskId, {
+    lastEventId,
+    snapshot: {
+      taskId,
+      status: task.status,
+      progress: task.progress,
+      crawledItems: task.crawledItems,
+      name: task.name,
+    },
+  });
 });
 
 // Get crawler queue stats

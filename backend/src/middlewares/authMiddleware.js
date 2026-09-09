@@ -8,14 +8,22 @@ const authMiddleware = (req, res, next) => {
   try {
     // 从 Authorization 头获取令牌
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    // SSE（EventSource）无法自定义请求头，允许 ?access_token= 兜底传递令牌
+    const queryToken = typeof req.query?.access_token === 'string' ? req.query.access_token : null;
+
+    let token;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (queryToken) {
+      token = queryToken;
+    }
+
+    if (!token) {
       return res.status(401).json({
         success: false,
         message: '未提供认证令牌',
       });
     }
-
-    const token = authHeader.substring(7);
 
     // 验证令牌
     const decoded = jwt.verify(
