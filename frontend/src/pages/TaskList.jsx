@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
@@ -22,6 +22,17 @@ const TASK_TYPE_LABELS = {
   mixed: '混合',
 };
 
+// 地址格式校验：必填由 required 规则负责，此处仅校验 http(s) 协议头
+const httpUrlRule = {
+  validator: (_, value) => {
+    if (!value) return Promise.resolve();
+    if (!/^https?:\/\/\S+/i.test(value.trim())) {
+      return Promise.reject(new Error('地址必须以 http:// 或 https:// 开头'));
+    }
+    return Promise.resolve();
+  },
+};
+
 const TaskList = () => {
   const {
     tasks, loading, pagination, setPagination, crawlTypeFilter, setCrawlTypeFilter,
@@ -31,7 +42,12 @@ const TaskList = () => {
   } = useTasks();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  // 监听采集类型：弹窗中只渲染当前类型对应的地址字段
+  const crawlType = Form.useWatch('crawlType', form) || 'single';
+  // 监听定时采集开关：仅启用时渲染间隔输入框
+  const scheduleEnabled = Form.useWatch(['schedule', 'enabled'], form);
   // 日志弹窗状态：SSE 实时推送（snapshot/log/progress/status），REST 仅作兜底
   const [logState, setLogState] = useState({
     open: false,
@@ -250,35 +266,59 @@ const TaskList = () => {
   };
 
   const handleModalOk = useCallback(async () => {
+    // 防重复提交：请求未结束前忽略后续点击
+    if (submitting) return;
+    let values;
     try {
-      const values = await form.validateFields();
-      console.log('Form values:', values);
+      values = await form.validateFields();
+    } catch (error) {
+      // 校验未通过时提示首个错误字段（不进入提交态）
+      if (error.errorFields && error.errorFields.length > 0) {
+        message.error(error.errorFields[0].errors[0]);
+      }
+      return;
+    }
+    // 只提交当前采集类型对应的地址，清空另一类型残留（兼容历史脏数据与切换残留）
+    const payload = {
+      ...values,
+      name: (values.name || '').trim(),
+      description: (values.description || '').trim(),
+    };
+    if (values.crawlType === 'single') {
+      payload.forumUrl = (values.forumUrl || '').trim();
+      payload.sectionUrl = '';
+    } else if (values.crawlType === 'batch') {
+      payload.sectionUrl = (values.sectionUrl || '').trim();
+      payload.forumUrl = '';
+    }
+    // 未启用定时采集时剔除间隔，避免 enabled:false + interval 脏数据落库
+    if (!values.schedule?.enabled) {
+      payload.schedule = { ...values.schedule, enabled: false, interval: undefined };
+    }
+    setSubmitting(true);
+    try {
       if (editingTask) {
-        await taskApi.update(editingTask._id, values);
+        await taskApi.update(editingTask._id, payload);
         message.success('任务更新成功');
       } else {
-        await taskApi.create(values);
+        await taskApi.create(payload);
         message.success('任务创建成功');
       }
       setIsModalVisible(false);
       fetchTasks();
     } catch (error) {
       console.error('Error saving task:', error);
-      console.error('Error details:', JSON.stringify(error, null, 2));
       if (error.response?.data?.message) {
         message.error(error.response.data.message);
-      } else if (error.errorFields && error.errorFields.length > 0) {
-        // 显示具体的验证错误
-        const firstError = error.errorFields[0];
-        console.error('First error field:', firstError.name, 'Error:', firstError.errors);
-        message.error(firstError.errors[0]);
       } else if (error.message) {
         message.error(error.message);
       } else {
         message.error('保存任务失败，请检查输入内容');
       }
+    } finally {
+      setSubmitting(false);
     }
-  }, [editingTask, fetchTasks, form]);
+  }, [editingTask, fetchTasks, form, submitting]);
 
 
   const columns = [
@@ -644,7 +684,8 @@ const TaskList = () => {
         title={editingTask ? '编辑任务' : '新建任务'}
         open={isModalVisible}
         onOk={handleModalOk}
-        onCancel={() => setIsModalVisible(false)}
+        confirmLoading={submitting}
+        onCancel={() => { if (!submitting) setIsModalVisible(false); }}
       >
         <Form 
           form={form} 
@@ -657,52 +698,61 @@ const TaskList = () => {
             schedule: { enabled: false }
           }}
         >
-          <Form.Item label="任务名称（可选，留空时从网页标题自动获取）" name="name">
-            <Input placeholder="若不填写，将使用爬取网页的标题作为任务名称" />
+          <Form.Item
+            label="任务名称"
+            name="name"
+            extra="可选，留空时自动使用爬取网页的标题作为任务名称"
+          >
+            <Input placeholder="请输入任务名称" />
           </Form.Item>
           <Form.Item label="任务描述" name="description">
-            <Input.TextArea placeholder="请输入任务描述" rows={3} />
+            <Input.TextArea
+              placeholder="请输入任务描述"
+              autoSize={{ minRows: 2, maxRows: 5 }}
+            />
           </Form.Item>
           <Form.Item label="采集类型" name="crawlType" rules={[{ required: true, message: '请选择采集类型' }]}>
-            <Select placeholder="请选择采集类型">
-              <Select.Option value="single">单帖采集</Select.Option>
-              <Select.Option value="batch">批量采集</Select.Option>
-            </Select>
+            <Radio.Group
+              optionType="button"
+              buttonStyle="solid"
+              options={[
+                { label: '单帖采集', value: 'single' },
+                { label: '批量采集', value: 'batch' },
+              ]}
+              onChange={(e) => {
+                const value = e.target.value;
+                // 切换类型时清空另一类型的地址，避免两类地址同时落库
+                // （列表地址列优先取 forumUrl，残留的帖子地址会让批量任务错显）
+                if (value === 'single') form.setFieldValue('sectionUrl', undefined);
+                if (value === 'batch') form.setFieldValue('forumUrl', undefined);
+              }}
+            />
           </Form.Item>
-          <Form.Item 
-            label="论坛地址" 
-            name="forumUrl"
-            dependencies={['crawlType']}
-            shouldUpdate={(prevValues, currentValues) => prevValues.crawlType !== currentValues.crawlType}
-            rules={[
-              ({
-                getFieldValue,
-                getFieldError,
-              }) => ({
-                required: getFieldValue('crawlType') === 'single',
-                message: '单帖采集时请输入帖子地址',
-              }),
-            ]}
-          >
-            <Input placeholder="单帖采集时输入帖子地址，批量采集时可留空" />
-          </Form.Item>
-          <Form.Item 
-            label="版块地址" 
-            name="sectionUrl"
-            dependencies={['crawlType']}
-            shouldUpdate={(prevValues, currentValues) => prevValues.crawlType !== currentValues.crawlType}
-            rules={[
-              ({
-                getFieldValue,
-                getFieldError,
-              }) => ({
-                required: getFieldValue('crawlType') === 'batch',
-                message: '批量采集时请输入版块地址',
-              }),
-            ]}
-          >
-            <Input placeholder="批量采集时输入版块地址，单帖采集时可留空" />
-          </Form.Item>
+          {crawlType === 'batch' ? (
+            <Form.Item
+              label="版块地址"
+              name="sectionUrl"
+              preserve={false}
+              rules={[
+                { required: true, message: '批量采集时请输入版块地址' },
+                httpUrlRule,
+              ]}
+            >
+              <Input placeholder="https://example.com/forum/123（批量采集该版块下的帖子）" />
+            </Form.Item>
+          ) : (
+            <Form.Item
+              label="帖子地址"
+              name="forumUrl"
+              preserve={false}
+              rules={[
+                { required: true, message: '单帖采集时请输入帖子地址' },
+                httpUrlRule,
+              ]}
+            >
+              <Input placeholder="https://example.com/thread-123-1-1.html" />
+            </Form.Item>
+          )}
           <Form.Item label="任务类型" name="taskType" rules={[{ required: true, message: '请选择任务类型' }]}>
             <Select placeholder="请选择任务类型">
               <Select.Option value="novel">小说</Select.Option>
@@ -710,37 +760,46 @@ const TaskList = () => {
               <Select.Option value="mixed">混合</Select.Option>
             </Select>
           </Form.Item>
+          <Divider orientation="left" orientationMargin={0} style={{ marginTop: 8, marginBottom: 16 }}>
+            高级设置
+          </Divider>
           <Form.Item label="定时采集" name={['schedule', 'enabled']} valuePropName="checked">
-            <Checkbox>启用定时采集</Checkbox>
+            <Checkbox
+              onChange={(e) => {
+                // 启用时给默认间隔 24 小时（已有值则保留）；关闭时清空间隔，避免脏数据
+                if (e.target.checked) {
+                  if (!form.getFieldValue(['schedule', 'interval'])) {
+                    form.setFieldValue(['schedule', 'interval'], 24);
+                  }
+                } else {
+                  form.setFieldValue(['schedule', 'interval'], undefined);
+                }
+              }}
+            >
+              启用定时采集
+            </Checkbox>
           </Form.Item>
-          <Form.Item noStyle shouldUpdate={(prevValues, currentValues) => {
-            return prevValues.schedule?.enabled !== currentValues.schedule?.enabled;
-          }}>
-            {({ getFieldValue }) => {
-              const isEnabled = getFieldValue(['schedule', 'enabled']);
-              return (
-                <Form.Item 
-                  label="采集间隔（小时）" 
-                  name={['schedule', 'interval']} 
-                  rules={[
-                    {
-                      required: isEnabled,
-                      type: 'number', 
-                      min: 1, 
-                      message: '采集间隔至少为1小时'
-                    }
-                  ]}
-                >
-                  <InputNumber 
-                  placeholder="请输入采集间隔（小时）" 
-                  min={1} 
-                  disabled={!isEnabled} 
-                  style={{ width: '100%' }}
-                />
-                </Form.Item>
-              );
-            }}
-          </Form.Item>
+          {scheduleEnabled && (
+            <Form.Item
+              label="采集间隔（小时）"
+              name={['schedule', 'interval']}
+              preserve={false}
+              rules={[
+                {
+                  required: true,
+                  type: 'number',
+                  min: 1,
+                  message: '启用定时采集后请输入至少 1 小时的采集间隔',
+                },
+              ]}
+            >
+              <InputNumber
+                placeholder="请输入采集间隔（小时）"
+                min={1}
+                style={{ width: '100%' }}
+              />
+            </Form.Item>
+          )}
           <Form.Item 
             label="最大爬取页数" 
             name={['config', 'maxPages']} 
@@ -770,7 +829,7 @@ const TaskList = () => {
         onCancel={handleCloseLogs}
         footer={null}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           {logState.status && (

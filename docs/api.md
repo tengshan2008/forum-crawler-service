@@ -226,11 +226,12 @@ Content-Type: application/json
 
 **字段规则**
 - `crawlType` (string, 必填): `single`（单帖）或 `batch`（批量）
-- `forumUrl` (string, 条件必填): 单帖采集时必填
-- `sectionUrl` (string, 条件必填): 批量采集时必填
-- `name` (string, 可选): 留空时按类型自动生成（`单帖/批量采集_<时间戳>`），批量任务也可由爬虫返回的标题补全
+- `forumUrl` (string, 条件必填): 单帖采集时必填；必须以 `http://` 或 `https://` 开头（纯空白按缺失处理，返回 400）
+- `sectionUrl` (string, 条件必填): 批量采集时必填；协议头规则同 `forumUrl`
+- `name` (string, 可选): 留空（含纯空白）时按类型自动生成（`单帖/批量采集_<时间戳>`），批量任务也可由爬虫返回的标题补全
 - `taskType` (string, 可选): novel / image / mixed
 - `description` / `config` / `schedule` (object, 可选)
+- 服务端对 `name`、`description`、`forumUrl`、`sectionUrl` 统一去除首尾空白后再校验/落库
 
 创建成功后任务状态固定为 `pending`（客户端传入的 status/userId 等字段被忽略）。
 
@@ -264,6 +265,7 @@ Content-Type: application/json
 
 **请求体**（仅白名单字段生效，其余忽略）
 - 可更新字段：`name`、`description`、`forumUrl`、`sectionUrl`、`crawlType`、`taskType`、`config`、`schedule`
+- `name`、`description`、`forumUrl`、`sectionUrl` 更新时同样去除首尾空白
 - `status`、`userId`、`progress` 等状态/归属字段不在白名单，传入即忽略（防批量赋值篡改）
 ```json
 {

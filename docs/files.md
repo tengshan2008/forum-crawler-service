@@ -94,9 +94,13 @@ frontend/
 
 ```
 docker/
-├── Dockerfile.backend                        # 后端容器镜像配置
-├── Dockerfile.frontend                       # 前端容器镜像配置
-├── docker-compose.yml                        # Docker Compose 编排配置
+├── .env.example                              # Compose 密钥模板（复制为 .env，.env 不入库）
+├── Dockerfile.backend                        # 后端生产镜像配置
+├── Dockerfile.backend.dev                    # 后端开发镜像配置（nodemon 热更新）
+├── Dockerfile.frontend                       # 前端生产镜像配置（nginx 静态托管）
+├── Dockerfile.frontend.dev                   # 前端开发镜像配置（Vite dev server）
+├── docker-compose.yml                        # Docker Compose 生产编排
+├── docker-compose.dev.yml                    # Docker Compose 开发编排（源码挂载）
 └── nginx.conf                                # Nginx 反向代理配置
 ```
 

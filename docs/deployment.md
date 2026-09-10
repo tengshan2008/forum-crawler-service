@@ -51,11 +51,18 @@ nano crawler/.env
 # 前端配置
 cp frontend/.env.example frontend/.env
 nano frontend/.env
+
+# Docker Compose 部署专用（dev/prod 两套 compose 都需要）
+cp docker/.env.example docker/.env
+openssl rand -hex 32   # 执行两次，分别填入 docker/.env 的 JWT_SECRET / JWT_REFRESH_SECRET
+nano docker/.env
 ```
 
-> **注意（必读）**：后端 `JWT_SECRET` / `JWT_REFRESH_SECRET` 必须修改为强随机值
-> （如 `openssl rand -hex 32` 的输出），保留示例值或缺省时后端启动会直接失败；
-> Docker 部署时同样需要在 `docker/.env` 或环境变量中提供这两个密钥。
+> **注意（必读）**：后端 `JWT_SECRET` / `JWT_REFRESH_SECRET` 必须设置为强随机值
+> （如 `openssl rand -hex 32` 的输出），保留示例值或留空时：
+> Docker Compose 会在启动前直接报错（`${JWT_SECRET:?}` 必填插值），
+> 即使绕过 compose，后端 `config.validateEnv()` 也会 fail-fast 拒绝启动。
+> 使用 `docker compose -f docker/...` 时，`.env` 自动从 compose 文件所在目录（即 `docker/`）读取。
 
 ### 4. 构建 Docker 镜像
 
@@ -81,6 +88,29 @@ docker-compose -f docker/docker-compose.yml logs -f
 # 测试 API
 curl http://localhost:5000/health
 ```
+
+---
+
+## 开发环境 Docker Compose（热更新）
+
+`docker/docker-compose.dev.yml` 以 nodemon / Vite 运行并挂载源码卷，用于服务器或本机开发联调，
+同样必须先配置 `docker/.env` 中的 JWT 密钥（见上文第 3 步）：
+
+```bash
+cp docker/.env.example docker/.env
+openssl rand -hex 32   # 两次，分别填入两个变量
+nano docker/.env
+
+# 启动（-f 指定文件时，.env 自动从 docker/ 目录读取）
+docker compose -f docker/docker-compose.dev.yml up -d --build
+
+# 查看日志 / 停止
+docker compose -f docker/docker-compose.dev.yml logs -f backend
+docker compose -f docker/docker-compose.dev.yml down
+```
+
+端口：前端 `3000`、后端 `5000`、MongoDB `27017`、Redis `6379`。
+`.env` 放在其他目录时需显式指定：`docker compose --env-file /path/to/.env -f docker/docker-compose.dev.yml up -d`。
 
 ---
 
@@ -225,6 +255,17 @@ docker-compose -f docker/docker-compose.yml logs backend
 
 # 检查端口占用
 lsof -i :5000
+```
+
+### 后端报「安全环境变量缺失…JWT_SECRET, JWT_REFRESH_SECRET」
+
+说明 compose 未把 JWT 密钥传入容器。按上文第 3 步创建 `docker/.env`（`cp docker/.env.example docker/.env`
+并填入 `openssl rand -hex 32` 的输出）后重新 `up -d`；临时验证也可用环境变量内联启动：
+
+```bash
+JWT_SECRET=$(openssl rand -hex 32) \
+JWT_REFRESH_SECRET=$(openssl rand -hex 32) \
+  docker compose -f docker/docker-compose.dev.yml up -d
 ```
 
 ### 数据库连接错误

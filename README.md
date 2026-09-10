@@ -203,6 +203,10 @@ scripts\setup\setup.bat
 
 #### 3️⃣ 启动服务
 ```bash
+# 首次启动前：配置 Docker Compose 的 JWT 密钥（dev/prod 都需要，否则后端拒绝启动）
+cp docker/.env.example docker/.env
+# 执行两次 openssl rand -hex 32，分别填入 docker/.env 的 JWT_SECRET / JWT_REFRESH_SECRET
+
 # 使用开发环境配置
 docker-compose -f docker/docker-compose.dev.yml up -d
 

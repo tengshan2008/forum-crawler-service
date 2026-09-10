@@ -27,6 +27,16 @@ function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+// 字符串去首尾空白；非字符串（undefined/数字等）原样返回
+function trimString(value) {
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+// 地址必须以 http:// 或 https:// 开头
+function isValidHttpUrl(url) {
+  return /^https?:\/\//i.test(url);
+}
+
 // 单条查询的所有权约束（管理员不受限）
 function scopedQuery(taskId, user) {
   const query = { _id: taskId };
@@ -91,19 +101,35 @@ async function getTask(taskId, user) {
 }
 
 async function createTask(body, userId) {
-  const { name, description, forumUrl, sectionUrl, crawlType, taskType, config, schedule } = body;
+  // 文本字段统一去首尾空白，防止纯空格绕过必填校验
+  const crawlType = body.crawlType;
+  const name = trimString(body.name);
+  const description = trimString(body.description);
+  const forumUrl = trimString(body.forumUrl);
+  const sectionUrl = trimString(body.sectionUrl);
+  const { taskType, config, schedule } = body;
 
-  // 创建校验
-  if (crawlType === 'single' && !forumUrl) {
-    throw new AppError('单帖采集时请输入帖子地址', 400);
+  // 创建校验（trim 后空串为 falsy，纯空格无法再绕过）
+  if (crawlType === 'single') {
+    if (!forumUrl) {
+      throw new AppError('单帖采集时请输入帖子地址', 400);
+    }
+    if (!isValidHttpUrl(forumUrl)) {
+      throw new AppError('帖子地址必须以 http:// 或 https:// 开头', 400);
+    }
   }
-  if (crawlType === 'batch' && !sectionUrl) {
-    throw new AppError('批量采集时请输入版块地址', 400);
+  if (crawlType === 'batch') {
+    if (!sectionUrl) {
+      throw new AppError('批量采集时请输入版块地址', 400);
+    }
+    if (!isValidHttpUrl(sectionUrl)) {
+      throw new AppError('版块地址必须以 http:// 或 https:// 开头', 400);
+    }
   }
 
   // 默认命名
   let taskName = name;
-  if (!taskName || taskName.trim() === '') {
+  if (!taskName || taskName === '') {
     const now = new Date();
     taskName = `${crawlType === 'single' ? '单帖' : '批量'}采集_${now.toISOString().slice(0, 19).replace(/[:-]/g, '-')}`;
   }
@@ -126,7 +152,10 @@ async function updateTask(taskId, user, body) {
   const updates = {};
   for (const field of TASK_UPDATE_FIELDS) {
     if (body[field] !== undefined) {
-      updates[field] = body[field];
+      // 文本字段统一 trim，与创建口径一致
+      updates[field] = ['name', 'description', 'forumUrl', 'sectionUrl'].includes(field)
+        ? trimString(body[field])
+        : body[field];
     }
   }
 

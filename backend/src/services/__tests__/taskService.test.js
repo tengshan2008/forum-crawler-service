@@ -188,6 +188,42 @@ describe('taskService 创建校验与默认命名', () => {
 
     expect(mockTask.create.mock.calls[0][0].name).toBe('我的任务');
   });
+
+  it('forumUrl 仅含空白字符时按缺失处理，抛 400（防止空格绕过必填）', async () => {
+    await expectAppError(
+      service.createTask({ crawlType: 'single', forumUrl: '   ' }, 'u1'),
+      400
+    );
+    expect(mockTask.create).not.toHaveBeenCalled();
+  });
+
+  it('地址必须以 http:// 或 https:// 开头，否则抛 400', async () => {
+    await expectAppError(
+      service.createTask({ crawlType: 'single', forumUrl: 'www.example.com/thread-1' }, 'u1'),
+      400
+    );
+    expect(mockTask.create).not.toHaveBeenCalled();
+  });
+
+  it('创建时 forumUrl/sectionUrl/name/description 去除首尾空白后落库', async () => {
+    mockTask.create.mockResolvedValue({ _id: 't9' });
+
+    await service.createTask(
+      {
+        crawlType: 'single',
+        forumUrl: '  http://example.com/t  ',
+        sectionUrl: '  ',
+        name: '  我的任务  ',
+        description: '  描述  ',
+      },
+      'u1'
+    );
+
+    const payload = mockTask.create.mock.calls[0][0];
+    expect(payload.forumUrl).toBe('http://example.com/t');
+    expect(payload.name).toBe('我的任务');
+    expect(payload.description).toBe('描述');
+  });
 });
 
 describe('taskService 更新白名单与所有权', () => {
@@ -212,6 +248,19 @@ describe('taskService 更新白名单与所有权', () => {
       service.updateTask('missing', { role: 'admin' }, {}),
       404
     );
+  });
+
+  it('更新时 forumUrl/sectionUrl/name 去除首尾空白', async () => {
+    mockTask.findOneAndUpdate.mockResolvedValue({ _id: 't1' });
+
+    await service.updateTask(
+      't1',
+      { role: 'admin' },
+      { name: '  新名字  ', forumUrl: '  http://p  ' }
+    );
+
+    const [, updates] = mockTask.findOneAndUpdate.mock.calls[0];
+    expect(updates).toEqual({ name: '新名字', forumUrl: 'http://p' });
   });
 });
 

@@ -1,5 +1,25 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.10.2 - docker-compose.dev.yml JWT 密钥缺失 P0 热修
+**发布日期**: 2026-09-10
+**状态**: ✅ 已完成
+
+- 修复：服务器使用 `docker/docker-compose.dev.yml` 部署时 backend 崩溃循环（`安全环境变量缺失或为不安全的默认值: JWT_SECRET, JWT_REFRESH_SECRET`）——dev compose 的 backend 服务未传入 JWT 密钥且未挂载 `backend/.env`，被 `config.validateEnv()` fail-fast 拦截；现与生产 compose 对齐，通过 `${JWT_SECRET:?}` / `${JWT_REFRESH_SECRET:?}` 必填插值从 `docker/.env`（`-f` 时自动从 compose 文件目录读取）或宿主环境变量注入，缺失时 compose 启动前即报清晰错误
+- 新增 `docker/.env.example` 模板（dev/prod 两套 compose 共用，含 openssl 生成说明）
+- 移除 dev compose 已过时的 `version: '3.8'` 顶层属性（消除 Compose v2 obsolete 警告）
+- 文档：`docs/deployment.md` 补充 `docker/.env` 配置步骤、开发环境 compose 启动章节与该错误的故障排除条目；`docs/files.md` 补全 docker 目录文件清单
+
+## 版本 2.10.1 - 新建/编辑任务弹窗 P0/P1 修复
+**发布日期**: 2026-09-10
+**状态**: ✅ 已完成
+
+- 修复地址脏数据：弹窗不再同时显示「论坛地址/版块地址」两个输入框，改为按采集类型条件渲染（单帖→帖子地址、批量→版块地址）；切换类型时清空另一类型字段（`setFieldValue` + `preserve={false}`），提交前再按类型剔除另一地址，彻底避免两类地址同时落库导致列表地址列错显（列表取 `forumUrl || sectionUrl`）
+- 修复重复提交：新增 `submitting` 状态，请求中「确定」按钮进入 loading 且禁用（`confirmLoading`），提交函数入口防重入，提交期间禁止关闭弹窗；校验失败不进入提交态
+- URL 校验与规范化：前端地址字段增加 http(s):// 协议头校验（httpUrlRule）并在提交前 trim；后端 `createTask` 对 name/description/forumUrl/sectionUrl 统一 trim，纯空格地址不再绕过必填（400），地址必须以 http:// 或 https:// 开头（400），`updateTask` 白名单字符串字段同步 trim；新增 taskService 单测 4 例（45 通过）
+- 定时采集脏数据修复：未启用时不再渲染常驻的禁用态间隔输入框；勾选启用自动填默认间隔 24 小时（已有值保留），取消勾选清空 interval（`preserve={false}` + 提交时剔除），杜绝 `{enabled:false, interval:N}` 落库
+- 弹窗信息架构（P2）：采集类型由下拉改为实心按钮组 `Radio.Group`（两个选项平铺，地址字段联动状态一目了然）；任务名称 label 简化为「任务名称」，自动命名说明移至表单项 `extra`；描述框改 `autoSize`（2-5 行自适应）；新增「高级设置」分组（Divider 收纳定时采集与最大爬取页数）；日志弹窗 `destroyOnClose` 迁移至 antd 5.25+ 的 `destroyOnHidden`（消除弃用告警）
+- 顺手清理：移除地址字段自定义 validator 中未使用的 `getFieldError` 解构及 Form values 调试日志
+
 ## 版本 2.10.0 - 任务列表 P2 规模化与美化
 **发布日期**: 2026-09-10
 **状态**: ✅ 已完成

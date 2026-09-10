@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # MongoDB Database
   mongo:
@@ -50,6 +48,11 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       CORS_ORIGIN: "*"
+      # JWT 密钥必须由部署方提供（docker/.env 或宿主环境变量），缺失时 compose 直接报错，
+      # 避免容器启动后被 config.validateEnv() fail-fast 拦截反复重启。
+      # 生成方式：openssl rand -hex 32
+      JWT_SECRET: ${JWT_SECRET:?请在 docker/.env 或环境变量中设置强随机 JWT_SECRET（openssl rand -hex 32）}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?请在 docker/.env 或环境变量中设置强随机 JWT_REFRESH_SECRET（openssl rand -hex 32）}
     ports:
       - "5000:5000"
     volumes:
