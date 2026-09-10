@@ -112,6 +112,31 @@ describe('taskService 角色数据可见性', () => {
     expect(mockTask.find.mock.calls[0][0]).toEqual({});
   });
 
+  it('getTaskStats：返回总数/运行中/失败/今日新增 4 项计数，且应用角色可见性过滤', async () => {
+    // countDocuments 按调用顺序依次返回 968, 3, 12, 5
+    mockTask.countDocuments
+      .mockResolvedValueOnce(968)
+      .mockResolvedValueOnce(3)
+      .mockResolvedValueOnce(12)
+      .mockResolvedValueOnce(5);
+
+    const result = await service.getTaskStats({ role: 'user', userId: 'u1' });
+
+    // 第 1 次：总数（仅 visibilityFilter）
+    expect(mockTask.countDocuments.mock.calls[0][0]).toEqual({ userId: 'u1' });
+    // 第 2 次：running
+    expect(mockTask.countDocuments.mock.calls[1][0]).toEqual({ userId: 'u1', status: 'running' });
+    // 第 3 次：failed
+    expect(mockTask.countDocuments.mock.calls[2][0]).toEqual({ userId: 'u1', status: 'failed' });
+    // 第 4 次：今日新增（createdAt >= 当天 0 点）
+    const todayFilter = mockTask.countDocuments.mock.calls[3][0];
+    expect(todayFilter.userId).toBe('u1');
+    expect(todayFilter.createdAt).toBeDefined();
+    expect(todayFilter.createdAt.$gte).toBeInstanceOf(Date);
+
+    expect(result).toEqual({ total: 968, running: 3, failed: 12, todayCreated: 5 });
+  });
+
   it('getTask：普通用户查他人任务返回 404（查询被所有权约束）', async () => {
     mockTask.findOne.mockResolvedValue(null);
 

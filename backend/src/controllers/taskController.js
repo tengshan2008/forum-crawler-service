@@ -23,6 +23,13 @@ exports.getAllTasks = catchAsync(async (req, res) => {
   });
 });
 
+// Get task stats (total / running / failed / todayCreated)
+exports.getTaskStats = catchAsync(async (req, res) => {
+  const stats = await taskService.getTaskStats(req.user);
+
+  sendSuccess(res, { data: stats });
+});
+
 // Get single task by ID
 exports.getTaskById = catchAsync(async (req, res) => {
   const task = await taskService.getTask(req.params.id, req.user);

@@ -9,6 +9,8 @@ router.use(authMiddleware.authMiddleware);
 
 // Crawler stats - 只有管理员可以访问（必须注册在 /:id 之前，否则会被 :id 匹配吞掉）
 router.get('/crawler/stats', authMiddleware.requireRole(['admin']), taskController.getCrawlerStats);
+// Task stats - 必须注册在 /:id 之前
+router.get('/stats', taskController.getTaskStats);
 
 // Task routes
 router.get('/', taskController.getAllTasks);

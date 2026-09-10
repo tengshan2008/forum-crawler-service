@@ -107,20 +107,7 @@
   line-height: 32px;
 }
 
-/* 按钮样式 */
-.ant-btn {
-  border-radius: 2px;
-}
-
-.ant-btn-primary {
-  background-color: #1890ff;
-  border-color: #1890ff;
-}
-
-.ant-btn-primary:hover {
-  background-color: #40a9ff;
-  border-color: #40a9ff;
-}
+/* 按钮样式 — 主题色由 ConfigProvider theme.token.colorPrimary 统一管理 */
 
 /* 标签样式 */
 .ant-tag {

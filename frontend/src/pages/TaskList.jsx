@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
 import { useTasks } from '../hooks/useTasks';
@@ -26,7 +26,8 @@ const TaskList = () => {
   const {
     tasks, loading, pagination, setPagination, crawlTypeFilter, setCrawlTypeFilter,
     statusFilter, setStatusFilter, keyword, setKeyword,
-    fetchTasks, deleteTask, startTask, pauseTask, cancelTask, retryTask,
+    stats, selectedIds, setSelectedIds, sort, setSort,
+    fetchTasks, deleteTask, batchDelete, startTask, pauseTask, cancelTask, retryTask,
   } = useTasks();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
@@ -406,12 +407,15 @@ const TaskList = () => {
       title: '创建时间',
       dataIndex: 'createdAt',
       key: 'createdAt',
+      sorter: true,
+      sortOrder: sort.field === 'createdAt' ? sort.order : null,
       render: (date) => dayjs(date).format('YYYY-MM-DD HH:mm:ss'),
     },
     {
       title: '操作',
       key: 'action',
       width: 150,
+      fixed: 'right',
       render: (_, record) => {
         // 低频操作收进「更多」下拉，保持行内视觉干净
         const moreItems = [
@@ -456,14 +460,67 @@ const TaskList = () => {
 
   return (
     <div className="task-list">
+      {/* 统计概览：总数 / 运行中 / 失败 / 今日新增 */}
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic
+              title="任务总数"
+              value={stats.total}
+              prefix={<ThunderboltOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic
+              title="执行中"
+              value={stats.running}
+              valueStyle={{ color: '#1890ff' }}
+              prefix={<SyncOutlined spin={stats.running > 0} />}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic
+              title="失败"
+              value={stats.failed}
+              valueStyle={{ color: '#cf1322' }}
+              prefix={<CloseCircleOutlined />}
+            />
+          </Card>
+        </Col>
+        <Col xs={12} sm={6}>
+          <Card size="small">
+            <Statistic
+              title="今日新增"
+              value={stats.todayCreated}
+              valueStyle={{ color: '#3f8600' }}
+              prefix={<CheckCircleOutlined />}
+            />
+          </Card>
+        </Col>
+      </Row>
+
       <div style={{ marginBottom: 16 }}>
         <Space wrap>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleAddTask}>
             新建任务
           </Button>
-          <Button icon={<ReloadOutlined />} onClick={() => fetchTasks()}>
+          <Button icon={<ReloadOutlined />} onClick={() => { fetchTasks(); }}>
             刷新
           </Button>
+          {selectedIds.length > 0 && (
+            <Popconfirm
+              title={`确认删除选中的 ${selectedIds.length} 个任务？`}
+              onConfirm={() => batchDelete(selectedIds)}
+            >
+              <Button danger icon={<DeleteOutlined />}>
+                批量删除（{selectedIds.length}）
+              </Button>
+            </Popconfirm>
+          )}
           <Input.Search
             placeholder="搜索任务名称"
             allowClear
@@ -508,6 +565,11 @@ const TaskList = () => {
         dataSource={tasks}
         loading={loading}
         rowKey="_id"
+        scroll={{ x: 1200 }}
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys),
+        }}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,
@@ -515,7 +577,14 @@ const TaskList = () => {
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条`,
         }}
-        onChange={(pag) => setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize })}
+        onChange={(pag, _filters, sorter) => {
+          setPagination({ ...pagination, current: pag.current, pageSize: pag.pageSize });
+          if (sorter.field) {
+            setSort({ field: sorter.field, order: sorter.order });
+          } else {
+            setSort({ field: null, order: null });
+          }
+        }}
         expandable={{
           expandedRowRender: (record) => {
             const hasSkipReasons = record.skipReasons && record.skipReasons.length > 0;

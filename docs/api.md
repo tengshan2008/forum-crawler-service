@@ -154,6 +154,30 @@ GET /api/tasks
 
 ---
 
+### 1.1 获取任务统计概览
+
+**请求**
+```
+GET /api/tasks/stats
+```
+
+> 普通用户仅统计本人任务；管理员统计全部。
+
+**响应示例**
+```json
+{
+  "success": true,
+  "data": {
+    "total": 968,
+    "running": 3,
+    "failed": 12,
+    "todayCreated": 5
+  }
+}
+```
+
+---
+
 ### 2. 获取单个任务
 
 **请求**

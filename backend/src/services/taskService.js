@@ -64,6 +64,24 @@ async function listTasks(query, user) {
   return { tasks, total };
 }
 
+// 任务统计概览：返回总数/运行中/失败/今日新增，应用角色可见性过滤
+async function getTaskStats(user) {
+  const base = buildVisibilityFilter(user);
+
+  // 当天 0 点作为"今日新增"的起始时间
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const [total, running, failed, todayCreated] = await Promise.all([
+    Task.countDocuments(base),
+    Task.countDocuments({ ...base, status: 'running' }),
+    Task.countDocuments({ ...base, status: 'failed' }),
+    Task.countDocuments({ ...base, createdAt: { $gte: startOfToday } }),
+  ]);
+
+  return { total, running, failed, todayCreated };
+}
+
 async function getTask(taskId, user) {
   const task = await Task.findOne(scopedQuery(taskId, user));
   if (!task) {
@@ -343,6 +361,7 @@ async function getTaskLogs(taskId, user, { lines = DEFAULT_LOG_LINES } = {}) {
 module.exports = {
   buildVisibilityFilter,
   listTasks,
+  getTaskStats,
   getTask,
   createTask,
   updateTask,

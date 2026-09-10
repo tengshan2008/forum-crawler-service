@@ -74,6 +74,7 @@ api.interceptors.response.use(
 // Task API
 export const taskApi = {
   getAll: (params) => api.get('/tasks', { params }),
+  getStats: () => api.get('/tasks/stats'),
   getById: (id) => api.get(`/tasks/${id}`),
   create: (data) => api.post('/tasks', data),
   update: (id, data) => api.put(`/tasks/${id}`, data),

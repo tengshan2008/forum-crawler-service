@@ -1,5 +1,15 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.10.0 - 任务列表 P2 规模化与美化
+**发布日期**: 2026-09-10
+**状态**: ✅ 已完成
+
+- 后端新增 `GET /api/tasks/stats` 端点：返回 `{ total, running, failed, todayCreated }`，应用角色可见性过滤；`taskService.getTaskStats` 用 `Promise.all` 并发 4 次 `countDocuments`（今日新增按 `createdAt >= 当天0点`）；新增 taskService 单测 1 例
+- 前端 ConfigProvider theme token 迁移：`index.jsx` 添加 `theme.token.colorPrimary=#1890ff / borderRadius=4`，清理 `App.css` 中 v4 硬编码 `.ant-btn-primary` 色值覆盖（#1890ff/#40a9ff），改由 token 统一管理
+- 前端统计概览卡：TaskList 顶部 4 个 `Statistic` 小卡（任务总数/执行中/失败/今日新增），随列表与轮询同步刷新；执行中图标 `SyncOutlined` 有任务时 spin 动画
+- 前端表格增强：`scroll={{ x: 1200 }}` 窄屏横向滚动；操作列 `fixed: 'right'` 始终可见；`rowSelection` 行选择 + 工具栏批量删除按钮（Popconfirm 确认，`Promise.allSettled` 并发删除并汇报成功/失败数）；创建时间列 `sorter` 排序（透传 `sort` 参数至后端）
+- 文档：`docs/api.md` 同步 stats 端点说明
+
 ## 版本 2.9.0 - 任务列表 UX 整改（P0 数据展示修复 + P1 效率提升）
 **发布日期**: 2026-09-09
 **状态**: ✅ 已完成
