@@ -1,5 +1,14 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.10.3 - crawl.py `lib` 包导入失败 P0 热修
+**发布日期**: 2026-09-11
+**状态**: ✅ 已完成
+
+- 修复：Docker 部署后执行任务时报 `ModuleNotFoundError: No module named 'lib'`（`crawler/crawl.py` 第 25 行 `from lib.text_utils import ...`）。后端经 `child_process.spawn` 从 `/app/backend` 启动爬虫时，部分容器/解释器组合未把脚本目录加入 `sys.path[0]`，导致同级 `lib` 包与 `image_downloader` 无法解析
+- `crawler/crawl.py` 在 stdlib 导入后、`from lib...` 之前显式 `sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))`，保证本地直跑 / Docker / 任意 cwd 下均可解析（与 `crawler/tests/` 中 `sys.path.insert` 模式一致）
+- `docker/Dockerfile.backend` 与 `docker/Dockerfile.backend.dev` 增加 `ENV PYTHONPATH=/app/crawler` 作为容器级兜底，双保险避免同类问题
+- 不改动爬虫 stdout 输出格式（PROGRESS:/CRAWLED:/TITLE:）
+
 ## 版本 2.10.2 - docker-compose.dev.yml JWT 密钥缺失 P0 热修
 **发布日期**: 2026-09-10
 **状态**: ✅ 已完成

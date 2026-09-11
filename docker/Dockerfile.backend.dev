@@ -17,6 +17,10 @@ WORKDIR /app/backend
 # Set development environment
 ENV NODE_ENV=development
 
+# 爬虫脚本 /app/crawler/crawl.py 通过 `from lib.xxx` 导入同级包，
+# 显式声明 PYTHONPATH 避免容器内解释器未把脚本目录加入 sys.path 时 import 失败。
+ENV PYTHONPATH=/app/crawler
+
 # Install Node.js dependencies (including devDependencies)
 COPY backend/package*.json ./
 RUN npm install
