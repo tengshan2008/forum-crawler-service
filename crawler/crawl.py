@@ -21,6 +21,12 @@ from bs4 import BeautifulSoup
 import re
 import logging
 
+# 确保爬虫脚本所在目录在 sys.path 中：
+# 后端经 child_process.spawn 从 /app/backend 启动本脚本时，
+# 部分容器/解释器组合不会把脚本目录加入 sys.path[0]，导致 `from lib.xxx` 报 ModuleNotFoundError。
+# 这里显式插入，保证本地直跑、Docker、任意 cwd 下均可解析 lib 包与 image_downloader。
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 导入纯函数库（可被 pytest 直接测试，见 crawler/tests/）
 from lib.text_utils import calculate_content_hash, extract_text_content, is_garbage_content
 from lib.url_utils import (
