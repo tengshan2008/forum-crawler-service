@@ -28,13 +28,15 @@ import {
 } from '@ant-design/icons';
 import Masonry from 'react-masonry-css';
 import dayjs from 'dayjs';
-import { browseApi } from '../services/api';
+import { browseApi, taskApi } from '../services/api';
 import './ImageBrowser.css';
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
-const ImageBrowser = () => {
+const DEFAULT_FILTERS = { taskId: '', keyword: '', dateRange: null };
+
+const ImageBrowser = ({ filtersVisible = true }) => {
   const [imageGroups, setImageGroups] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -43,22 +45,21 @@ const ImageBrowser = () => {
     pageSize: 12,
     total: 0,
   });
-  const [filters, setFilters] = useState({
-    taskId: '',
-    keyword: '',
-    dateRange: null,
-  });
+  // filters 为输入草稿，appliedFilters 为已提交条件（请求参数的唯一事实来源）；
+  // 草稿仅在点击「搜索」/回车后提交，避免逐键请求与多入口状态漂移
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
   const [favorites, setFavorites] = useState(new Set());
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [previewImage, setPreviewImage] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [fullViewMode, setFullViewMode] = useState(false);
 
-  // 获取任务列表
+  // 获取任务列表（任务筛选项，误用小说接口会导致下拉空白：返回项没有 name 字段）
   useEffect(() => {
     const fetchTasks = async () => {
       try {
-        const res = await browseApi.getNovels();
+        const res = await taskApi.getAll({ page: 1, limit: 100 });
         setTasks(res.data.data || []);
       } catch (error) {
         message.error('获取任务列表失败');
@@ -67,12 +68,29 @@ const ImageBrowser = () => {
     fetchTasks();
   }, []);
 
+  // 统一构参层：搜索、翻页、删除后刷新都从 appliedFilters 派生同一套请求参数
+  const buildQueryParams = useCallback(
+    (page, size) => {
+      const params = { page, limit: size, taskId: appliedFilters.taskId || undefined };
+      const keyword = (appliedFilters.keyword || '').trim();
+      if (keyword) {
+        params.keyword = keyword;
+      }
+      if (appliedFilters.dateRange && appliedFilters.dateRange.length === 2) {
+        params.startDate = appliedFilters.dateRange[0].format('YYYY-MM-DD');
+        params.endDate = appliedFilters.dateRange[1].format('YYYY-MM-DD');
+      }
+      return params;
+    },
+    [appliedFilters]
+  );
+
   // 获取图片分组列表
   const fetchImageGroups = useCallback(async (page = 1, pageSize = null) => {
     const size = pageSize || pagination.pageSize;
     setLoading(true);
     try {
-      const res = await browseApi.getImageGroups({ page, limit: size, taskId: filters.taskId });
+      const res = await browseApi.getImageGroups(buildQueryParams(page, size));
       setImageGroups(res.data.data || []);
       setPagination({
         current: res.data.pagination.page,
@@ -84,8 +102,9 @@ const ImageBrowser = () => {
     } finally {
       setLoading(false);
     }
-  }, [pagination.pageSize, filters.taskId]);
+  }, [pagination.pageSize, buildQueryParams]);
 
+  // 首次加载及已应用筛选变化时回到第 1 页拉取（翻页由 handlePaginationChange 单独触发）
   useEffect(() => {
     fetchImageGroups(1);
   }, [fetchImageGroups]);
@@ -106,17 +125,14 @@ const ImageBrowser = () => {
     setFilters({ ...filters, dateRange: dates });
   };
 
-  const handleSearch = async () => {
-    setLoading(true);
-    try {
-      // 这里可以实现搜索功能，目前先重置过滤器
-      setFilters({ taskId: '', keyword: '', dateRange: null });
-      fetchImageGroups(1);
-    } catch (error) {
-      message.error('搜索失败');
-    } finally {
-      setLoading(false);
-    }
+  // 提交草稿筛选条件；实际请求由 appliedFilters 变化触发的 effect 统一发出
+  const handleSearch = () => {
+    setAppliedFilters({ ...filters });
+  };
+
+  const handleReset = () => {
+    setFilters(DEFAULT_FILTERS);
+    setAppliedFilters(DEFAULT_FILTERS);
   };
 
   const handleViewAllImages = (group) => {
@@ -290,22 +306,25 @@ const ImageBrowser = () => {
 
   return (
     <div className='image-browser'>
-      {/* 搜索和筛选区域 */}
+      {/* 搜索和筛选区域（由 BrowsePage 右上角「筛选」按钮统一折叠/展开） */}
+      {filtersVisible && (
       <Card className='filter-card'>
         <Space direction='vertical' style={{ width: '100%' }} size='middle'>
           <Row gutter={16}>
             <Col xs={24} sm={12} md={6}>
               <Input
-                placeholder='搜索网页标题'
+                placeholder='搜索网页标题/作者'
                 value={filters.keyword}
                 onChange={handleKeywordChange}
+                onPressEnter={handleSearch}
+                allowClear
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
               <Select
                 placeholder='选择任务'
                 style={{ width: '100%' }}
-                value={filters.taskId}
+                value={filters.taskId || undefined}
                 onChange={handleTaskFilter}
                 allowClear
               >
@@ -332,12 +351,7 @@ const ImageBrowser = () => {
               </Button>
             </Col>
             <Col>
-              <Button
-                onClick={() => {
-                  setFilters({ taskId: '', keyword: '', dateRange: null });
-                  fetchImageGroups(1);
-                }}
-              >
+              <Button onClick={handleReset}>
                 重置
               </Button>
             </Col>
@@ -350,6 +364,7 @@ const ImageBrowser = () => {
           </Row>
         </Space>
       </Card>
+      )}
 
       {/* 返回按钮 */}
       {selectedGroup && (

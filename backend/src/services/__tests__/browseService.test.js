@@ -55,7 +55,7 @@ const mockCount = (n) => ({
 // ============ 纯函数 ============
 
 describe('browseService 纯函数', () => {
-  it('buildImageFilter 基础条件 + taskId + 关键词 + 时间范围', () => {
+  it('buildImageFilter 基础条件 + taskId + 关键词 + 时间范围（结束日含全天）', () => {
     expect(service.buildImageFilter()).toEqual({
       postType: { $in: ['image', 'mixed'] },
       media: { $exists: true, $ne: [] },
@@ -63,7 +63,7 @@ describe('browseService 纯函数', () => {
 
     const f = service.buildImageFilter({
       taskId: 't1',
-      keyword: 'cat',
+      keyword: '  cat  ',
       startDate: '2026-01-01',
       endDate: '2026-02-01',
     });
@@ -72,8 +72,18 @@ describe('browseService 纯函数', () => {
       { title: { $regex: 'cat', $options: 'i' } },
       { author: { $regex: 'cat', $options: 'i' } },
     ]);
-    expect(f.createdAt.$gte).toEqual(new Date('2026-01-01'));
-    expect(f.createdAt.$lte).toEqual(new Date('2026-02-01'));
+    // 日期按本地自然日解释：开始日 00:00、结束日 23:59:59.999（含结束日全天）
+    expect(f.createdAt.$gte).toEqual(new Date('2026-01-01T00:00:00'));
+    expect(f.createdAt.$lte).toEqual(new Date('2026-02-01T23:59:59.999'));
+  });
+
+  it('buildImageFilter 关键词转义正则元字符，空白关键词被忽略', () => {
+    const f = service.buildImageFilter({ keyword: 'a[b].c' });
+    expect(f.$or).toEqual([
+      { title: { $regex: 'a\\[b\\]\\.c', $options: 'i' } },
+      { author: { $regex: 'a\\[b\\]\\.c', $options: 'i' } },
+    ]);
+    expect(service.buildImageFilter({ keyword: '   ' }).$or).toBeUndefined();
   });
 
   it('buildNovelFilter 仅在传入时附加 taskId/时间范围', () => {
@@ -193,6 +203,31 @@ describe('browseService 图片列表/搜索', () => {
 
     expect(items[0].totalImages).toBe(3);
     expect(pagination).toMatchObject({ page: 2, limit: 12, total: 7, pages: 1 });
+  });
+
+  it('listImageGroups 透传 keyword/startDate/endDate 到查询条件', async () => {
+    Post.find.mockReturnValue(mockQuery(posts));
+    Post.countDocuments.mockReturnValue(mockCount(1));
+
+    await service.listImageGroups({
+      page: '1',
+      limit: '12',
+      taskId: 't1',
+      keyword: 'a.b',
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+    });
+
+    const filter = Post.find.mock.calls[0][0];
+    expect(filter.taskId).toBe('t1');
+    expect(filter.$or).toEqual([
+      { title: { $regex: 'a\\.b', $options: 'i' } },
+      { author: { $regex: 'a\\.b', $options: 'i' } },
+    ]);
+    expect(filter.createdAt).toEqual({
+      $gte: new Date('2026-01-01T00:00:00'),
+      $lte: new Date('2026-01-31T23:59:59.999'),
+    });
   });
 
   it('searchImages 关键词进入查询条件', async () => {

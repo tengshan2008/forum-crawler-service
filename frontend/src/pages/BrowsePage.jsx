@@ -1,12 +1,19 @@
 import React, { useState } from 'react';
 import { Tabs, Card, Space, Button } from 'antd';
-import { PictureOutlined, FileTextOutlined, FilterOutlined } from '@ant-design/icons';
+import {
+  PictureOutlined,
+  FileTextOutlined,
+  FilterOutlined,
+  FilterFilled,
+} from '@ant-design/icons';
 import ImageBrowser from '../components/ImageBrowser';
 import NovelBrowser from '../components/NovelBrowser';
 import './BrowsePage.css';
 
 const BrowsePage = () => {
   const [activeTab, setActiveTab] = useState('images');
+  // 筛选栏可见性是页面级单一语义，props 下发给两个 Tab 的浏览组件
+  const [filtersVisible, setFiltersVisible] = useState(true);
 
   const tabItems = [
     {
@@ -17,7 +24,7 @@ const BrowsePage = () => {
           图片浏览
         </span>
       ),
-      children: <ImageBrowser />,
+      children: <ImageBrowser filtersVisible={filtersVisible} />,
     },
     {
       key: 'novels',
@@ -27,7 +34,7 @@ const BrowsePage = () => {
           小说浏览
         </span>
       ),
-      children: <NovelBrowser />,
+      children: <NovelBrowser filtersVisible={filtersVisible} />,
     },
   ];
 
@@ -48,12 +55,13 @@ const BrowsePage = () => {
           tabBarGutter={32}
           tabBarExtraContent={
             <Space>
-              <Button 
-                type="text" 
-                icon={<FilterOutlined />}
-                size="large"
+              <Button
+                type={filtersVisible ? 'default' : 'primary'}
+                icon={filtersVisible ? <FilterFilled /> : <FilterOutlined />}
+                size='large'
+                onClick={() => setFiltersVisible((v) => !v)}
               >
-                筛选
+                {filtersVisible ? '收起筛选' : '展开筛选'}
               </Button>
             </Space>
           }

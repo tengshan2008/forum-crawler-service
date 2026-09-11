@@ -701,6 +701,7 @@ GET /health
 ## 其他模块
 
 - **浏览/检索 API**：`/api/browse/images`、`/api/browse/novels`、`/api/browse/collections/*` 等（图片/小说浏览、搜索、收藏夹管理），均需认证
+  - `GET /api/browse/images/groups`（内容浏览-图片 Tab 数据源）：按网页分组分页，查询参数 `page`、`limit`（默认 12）、`taskId`、`keyword`（标题/作者模糊匹配，服务端转义正则元字符）、`startDate`/`endDate`（`YYYY-MM-DD`，按自然日含结束日全天）、`sortBy`（默认 `-createdAt`）
 - **管理 API**：`/api/admin/*`（用户管理、系统配置、监控），需 `admin` 角色
 - 响应结构与上述统一约定一致
 

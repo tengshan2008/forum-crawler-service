@@ -1,5 +1,39 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.10.6 - Docker 部署 `No module named 'lib'` 真正根因热修
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- 背景：v2.10.3 曾以「sys.path 未包含脚本目录」为假设，在 crawl.py 插入 `sys.path` 并给两个 Dockerfile 加 `PYTHONPATH`，但线上（git pull 部署）任务仍报 `ModuleNotFoundError: No module named 'lib'`
+- 真正根因：仓库 `.gitignore`（沿用 GitHub Python 模板）中未锚定路径的 `lib/` 规则匹配了任意层级目录，把 `crawler/lib/`（`__init__.py`/`text_utils.py`/`url_utils.py`/`dedup.py`/`post_builder.py`）整个排除出版本库。本机文件物理存在故一切测试/构建正常；服务器经 `git clone/pull` 得到的代码没有该目录，镜像里 `/app/crawler/crawl.py` 引用了一个不存在的包——此时无论 sys.path 还是 PYTHONPATH 都无法修复（路径正确但包缺失）
+- 修复：`.gitignore` 将 `lib/`、`lib64/` 锚定为仓库根规则（`/lib/`、`/lib64/`），并补注释防止回退；`crawler/lib/` 5 个文件纳入版本控制
+- 验证：`git archive HEAD` 模拟服务器纯净检出，复现完全相同的 `ModuleNotFoundError: No module named 'lib'`；补入 `crawler/lib/` 后，从任意 cwd、清空 `PYTHONPATH` 执行 `python3 crawler/crawl.py --help` 正常（exit 0）。v2.10.3 的 sys.path / PYTHONPATH 兜底保留，作为纵深防御
+- 部署动作：拉取本修复后必须**重新构建镜像**（`docker compose -f docker/docker-compose.yml up -d --build`），旧镜像内的代码不会因重启更新；dev 环境 `git pull` 后 bind mount 即生效（backend 会自动重建 python 子进程）
+
+## 版本 2.10.5 - 图片浏览假搜索修复与筛选栏折叠
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- 修复图片浏览 Tab「搜索」按钮反向重置筛选的假搜索：点击时原实现把 keyword/任务/日期全部清空，且列表请求只透传 `taskId`
+  - 后端 `listImageGroups`（`GET /api/browse/images/groups`）支持 `keyword`/`startDate`/`endDate` 查询参数，复用 `buildImageFilter`；无需再走 POST search
+  - `buildImageFilter` 关键词统一 trim 并经 `escapeRegExp` 转义（此前输入 `[`、`.` 等正则元字符会触发 Invalid regular expression 变 500）；日期按本地自然日解释，结束日改为当日 `23:59:59.999`（旧逻辑 `$lte` 到结束日 0 点，结束日白天的数据全部漏筛）
+  - 前端 `ImageBrowser` 收敛为「草稿 filters + 已应用 appliedFilters」单一事实来源：`buildQueryParams` 是搜索/翻页/删除后刷新的唯一构参出口，翻页不再丢筛选；任务下拉改为与关键字/日期一致的提交式（点搜索或在输入框回车生效），重置按钮同时清空草稿与已应用条件
+- BrowsePage 右上角无功能的「筛选」按钮改为真实的筛选栏折叠开关（收起筛选/展开筛选，图标随状态切换），可见性作为页面级单一语义 props 下发 `ImageBrowser`/`NovelBrowser`，两个 Tab 行为一致
+- 测试：browseService 新增/更新 3 例（关键词转义、groups 透传 keyword+日期、自然日边界），相关 55 例全绿；前端 vite build 通过、Vitest 14 全绿
+- 文档：`docs/api.md` 补 `GET /browse/images/groups` 参数说明
+
+## 版本 2.10.4 - 内容浏览页裂图与任务筛选空下拉 P0 修复
+**发布日期**: 2026-09-11
+**状态**: ✅ 已完成
+
+- 修复内容浏览页（图片浏览 Tab）缩略图全部裂图：爬虫落库的图片地址为 `/public/images/uploads/{taskId}/{hash}.jpg`，由后端 `express.static` 在 5000 端口提供，但前端链路均未转发该前缀
+  - 开发环境：`frontend/vite.config.js` 新增 `/public` 代理（目标复用 `VITE_PROXY_TARGET`），此前浏览器直连 Vite 3000 端口取静态图片必然 404
+  - 生产环境：`docker/nginx.conf` 新增 `location ^~ /public/` 反代到 backend；必须用 `^~` 前缀，否则既有 `.jpg/.png` 静态文件正则 location 会抢先命中、转去 nginx 本地 html 目录 404
+  - 本地直跑（非 Docker）：`crawler/image_downloader.py` 本地落盘路径由 `../../public/images` 修正为 `../public/images`——旧路径是 `crawler/app/` 时代的层级，app/ 归档后图片被写到仓库外（`<repo>/../public`），与后端挂载的仓库根 `public/` 不一致；Docker 路径 `/app/public` 不受影响
+- 修复图片浏览/小说浏览两个 Tab 的「选择任务」下拉空白：下拉数据误用 `browseApi.getNovels()`（小说帖子，无 `name` 字段，Option 渲染为空），改为 `taskApi.getAll({ page:1, limit:100 })` 拉取真实任务（`ImageBrowser.jsx` / `NovelBrowser.jsx`）
+- 验证：`vite build` 通过、Vitest 14 全绿、crawler pytest 全绿（84 例）；脚本断言爬虫写入路径与后端静态目录解析为同一路径
+- 文档：`docs/deployment.md` nginx 示例补 `/public` 反代段；`docs/development.md` 前端开发说明补充 `/public` 代理
+
 ## 版本 2.10.3 - crawl.py `lib` 包导入失败 P0 热修
 **发布日期**: 2026-09-11
 **状态**: ✅ 已完成

@@ -14,8 +14,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# 注意：必须锚定到仓库根目录（/lib/）。裸写 lib/ 会匹配任意层级，
+# 曾误把 crawler/lib/（text_utils/dedup/post_builder/url_utils）整个排除出版本库，
+# 导致 git pull 部署的环境中 crawl.py 报 ModuleNotFoundError: No module named 'lib'。
+/lib/
+/lib64/
 parts/
 sdist/
 var/

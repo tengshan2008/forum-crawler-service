@@ -20,6 +20,12 @@ export default defineConfig({
         timeout: 0,
         proxyTimeout: 0,
       },
+      // 爬虫下载的图片由后端 express.static 挂在 /public 下提供（与 /api 同源），
+      // 开发环境同样需要代理，否则浏览器直连 Vite 会 404 导致内容浏览页全部裂图
+      '/public': {
+        target: proxyTarget,
+        changeOrigin: true,
+      },
     },
     watch: {
       usePolling: !!process.env.VITE_USE_POLLING, // Docker/挂载卷下热更新需要轮询

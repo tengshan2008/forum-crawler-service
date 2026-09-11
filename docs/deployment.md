@@ -158,6 +158,15 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    # 爬虫图片等静态资源（后端 express.static 挂在 /public）。
+    # 必须用 ^~，否则 .jpg/.png 等静态文件正则 location 会抢先命中导致 404 裂图
+    location ^~ /public/ {
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
     # 启用 HTTPS
     listen 443 ssl http2;
     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;

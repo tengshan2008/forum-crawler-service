@@ -23,8 +23,10 @@ if os.path.exists('/app/public'):
     IMAGES_BASE_DIR = '/app/public/images'
     IMAGES_UPLOAD_DIR = '/app/public/images/uploads'
 else:
-    # 本地开发环境
-    IMAGES_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../public/images')
+    # 本地开发环境：写入仓库根目录 public/images（与后端 express.static
+    # 挂载的 ../../public 对齐）。注意本文件位于 crawler/ 下，只需上溯一级；
+    # 历史代码在 crawler/app/ 时使用两级，归档 app/ 后旧路径会写到仓库外导致裂图
+    IMAGES_BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../public/images')
     IMAGES_UPLOAD_DIR = os.path.join(IMAGES_BASE_DIR, 'uploads')
 
 def initialize_image_dirs():

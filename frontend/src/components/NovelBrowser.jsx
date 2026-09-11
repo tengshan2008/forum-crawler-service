@@ -25,13 +25,13 @@ import {
 } from '@ant-design/icons';
 import { Modal } from 'antd';
 import dayjs from 'dayjs';
-import { browseApi } from '../services/api';
+import { browseApi, taskApi } from '../services/api';
 import NovelReader from './NovelReader';
 import './NovelBrowser.css';
 
 const { RangePicker } = DatePicker;
 
-const NovelBrowser = () => {
+const NovelBrowser = ({ filtersVisible = true }) => {
   const [novels, setNovels] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -52,11 +52,11 @@ const NovelBrowser = () => {
   const [selectedNovel, setSelectedNovel] = useState(null);
   const [readerLoading, setReaderLoading] = useState(false);
 
-  // 获取任务列表
+  // 获取任务列表（任务筛选项，误用小说接口会导致下拉空白：返回项没有 name 字段）
   useEffect(() => {
     const fetchTasks = async () => {
       try {
-        const res = await browseApi.getNovels();
+        const res = await taskApi.getAll({ page: 1, limit: 100 });
         setTasks(res.data.data || []);
       } catch (error) {
         message.error('获取任务列表失败');
@@ -242,7 +242,8 @@ const NovelBrowser = () => {
 
   return (
     <div className='novel-browser'>
-      {/* 搜索和筛选区域 */}
+      {/* 搜索和筛选区域（由 BrowsePage 右上角「筛选」按钮统一折叠/展开） */}
+      {filtersVisible && (
       <Card className='filter-card'>
         <Space direction='vertical' style={{ width: '100%' }} size='middle'>
           <Row gutter={16}>
@@ -326,6 +327,7 @@ const NovelBrowser = () => {
           </Row>
         </Space>
       </Card>
+      )}
 
       {/* 小说列表 */}
       {novels.length === 0 ? (

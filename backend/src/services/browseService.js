@@ -54,22 +54,25 @@ const buildImageFilter = ({ taskId, keyword, startDate, endDate } = {}) => {
     filter.taskId = taskId;
   }
 
-  // 关键词搜索（标题/作者）
-  if (keyword) {
+  // 关键词搜索（标题/作者）：必须转义正则元字符，否则用户输入 "["、"." 等会抛
+  // Invalid regular expression 变 500（与任务列表 keyword 的处理保持一致）
+  const trimmedKeyword = (keyword || '').trim();
+  if (trimmedKeyword) {
+    const escaped = escapeRegExp(trimmedKeyword);
     filter.$or = [
-      { title: { $regex: keyword, $options: 'i' } },
-      { author: { $regex: keyword, $options: 'i' } },
+      { title: { $regex: escaped, $options: 'i' } },
+      { author: { $regex: escaped, $options: 'i' } },
     ];
   }
 
-  // 时间范围筛选
+  // 时间范围筛选（日期字符串按本地自然日解释，结束日含全天）
   if (startDate || endDate) {
     filter.createdAt = {};
     if (startDate) {
-      filter.createdAt.$gte = new Date(startDate);
+      filter.createdAt.$gte = new Date(`${startDate}T00:00:00`);
     }
     if (endDate) {
-      filter.createdAt.$lte = new Date(endDate);
+      filter.createdAt.$lte = new Date(`${endDate}T23:59:59.999`);
     }
   }
 
@@ -203,15 +206,23 @@ async function listImages(query) {
 }
 
 /**
- * 获取按网页分组的图片列表
+ * 获取按网页分组的图片列表（支持任务/关键词标题作者/时间范围筛选）
  */
 async function listImageGroups(query) {
-  const { page = 1, limit = 12, taskId, sortBy = '-createdAt' } = query;
+  const {
+    page = 1,
+    limit = 12,
+    taskId,
+    keyword,
+    startDate,
+    endDate,
+    sortBy = '-createdAt',
+  } = query;
   const pageNum = parseInt(page);
   const pageSize = parseInt(limit);
   const skip = (pageNum - 1) * pageSize;
 
-  const filter = buildImageFilter({ taskId });
+  const filter = buildImageFilter({ taskId, keyword, startDate, endDate });
 
   const posts = await Post.find(filter)
     .select(POST_LIST_SELECT)

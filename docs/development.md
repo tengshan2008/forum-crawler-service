@@ -422,7 +422,7 @@ python crawl.py
 
 ### 前端（Vite）
 ```bash
-# 开发模式（含 /api 代理，目标可用 VITE_PROXY_TARGET 覆盖）
+# 开发模式（/api 与 /public 静态图片均代理到后端，目标可用 VITE_PROXY_TARGET 覆盖）
 npm run dev
 
 # 生产构建（产物在 dist/）
