@@ -12,13 +12,15 @@
  */
 
 const mongoose = require('mongoose');
+// 自动加载 .env 中的 MONGODB_URI（含认证凭据），避免手动 source .env
+require('dotenv').config({ path: require('path').resolve(__dirname, '..', '.env') });
 const User = require('../src/models/User');
 const Post = require('../src/models/Post');
 
 async function migrate() {
   try {
     // 连接到MongoDB
-    const mongodbUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/forum-crawler';
+    const mongodbUri = process.env.MONGODB_URI || 'mongodb://192.168.50.50:27017/forum-crawler';
     await mongoose.connect(mongodbUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
