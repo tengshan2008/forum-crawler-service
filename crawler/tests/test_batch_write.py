@@ -11,7 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import crawl  # noqa: E402
 from lib.post_builder import build_post_document  # noqa: E402
-from pymongo import ReplaceOne  # noqa: E402
+from pymongo import UpdateOne  # noqa: E402
+from pymongo.common import validate_ok_for_update  # noqa: E402
 from pymongo.errors import BulkWriteError  # noqa: E402
 
 
@@ -65,10 +66,25 @@ def test_flush_全部成功_一次写库且按序回调():
     assert call['ordered'] is False  # 同批互不阻塞
     assert len(call['operations']) == 2
     op = call['operations'][0]
-    assert isinstance(op, ReplaceOne)
+    assert isinstance(op, UpdateOne)
     assert op._filter == {'sourceUrl': 'http://a'}
     assert op._doc['$set']['title'] == '标题A'
     assert op._upsert is True
+
+
+def test_flush_更新载荷通过pymongo官方校验_防ReplaceOne误用回归():
+    """回归：$set/$setOnInsert 载荷只能配 UpdateOne。
+
+    ReplaceOne 的 replacement 不允许 $ 操作符，且 pymongo 在 bulk_write
+    阶段才校验（构造 ReplaceOne 本身不报错），此前 FakeCollection mock 掉
+    bulk_write 导致该 bug 逃过测试、线上真库才暴露
+    （ValueError: replacement can not include $ operators）。"""
+    crawler = make_crawler()
+    crawler._flush_post_buffer([make_item('http://a', '标题A')])
+    op = crawler.posts_collection.calls[0]['operations'][0]
+    assert isinstance(op, UpdateOne)
+    assert list(op._doc.keys()) == ['$set', '$setOnInsert']
+    validate_ok_for_update(op._doc)  # pymongo 官方校验：合法 update 载荷，不抛即通过
 
 
 def test_flush_同_url只写一条且保留较新条目():

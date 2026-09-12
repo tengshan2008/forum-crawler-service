@@ -40,7 +40,7 @@ from lib.url_utils import (
 )
 
 # 导入 MongoDB 客户端
-from pymongo import MongoClient, ReplaceOne
+from pymongo import MongoClient, UpdateOne
 from pymongo.errors import BulkWriteError
 from bson import ObjectId
 
@@ -896,7 +896,10 @@ class ForumCrawler:
             return None
 
     def _flush_post_buffer(self, buffered, on_saved=None):
-        """批量写库（C2）：ReplaceOne upsert + ordered=False，减少逐条写库的网络往返。
+        """批量写库（C2）：UpdateOne upsert + ordered=False，减少逐条写库的网络往返。
+
+        必须用 UpdateOne：build_upsert_updates 产出 $set/$setOnInsert 更新载荷，
+        ReplaceOne 的 replacement 文档不允许 $ 操作符（真库 bulk_write 才校验）。
 
         Args:
             buffered: [{'post': 文档, 'title': 标题}, ...] 待保存缓冲
@@ -911,7 +914,7 @@ class ForumCrawler:
 
         try:
             operations = [
-                ReplaceOne(
+                UpdateOne(
                     {'sourceUrl': item['post']['sourceUrl']},
                     build_upsert_updates(item['post']),
                     upsert=True,

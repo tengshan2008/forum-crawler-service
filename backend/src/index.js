@@ -45,7 +45,14 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // Static files middleware - serve downloaded images
 // S5：跨域策略统一由全局 corsMiddleware（白名单）与 helmet CORP 管理，
 // 不再对静态资源单独放开 Access-Control-Allow-Origin: *（<img> 引用不受 CORS 限制）
-app.use('/public', express.static(path.join(__dirname, '../../public')));
+// 文件名为内容 md5（内容寻址，同名即同内容），可安全使用长缓存 + immutable
+app.use(
+  '/public',
+  express.static(path.join(__dirname, '../../public'), {
+    maxAge: '30d',
+    immutable: true,
+  })
+);
 
 // Routes
 app.use('/', routes);

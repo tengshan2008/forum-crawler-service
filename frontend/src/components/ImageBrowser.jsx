@@ -14,13 +14,12 @@ import {
   message,
   Empty,
   Modal,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
   DownloadOutlined,
   ShareAltOutlined,
-  HeartOutlined,
-  HeartFilled,
   LeftOutlined,
   RightOutlined,
   EyeOutlined,
@@ -51,6 +50,9 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
   const [favorites, setFavorites] = useState(new Set());
   const [selectedGroup, setSelectedGroup] = useState(null);
+  // 详情数据按需加载：列表仅返回 4 张预览，进入详情后拉全量并增量渲染
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(DETAIL_PAGE_SIZE);
   const [previewImage, setPreviewImage] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [fullViewMode, setFullViewMode] = useState(false);
@@ -135,8 +137,25 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     setAppliedFilters(DEFAULT_FILTERS);
   };
 
+  // 拉取单组全量图片（列表数据只有预览，详情需单独请求）
+  const loadGroupDetail = useCallback(async (postId) => {
+    setDetailLoading(true);
+    try {
+      const res = await browseApi.getImageGroupDetail(postId);
+      setSelectedGroup(res.data.data);
+    } catch (error) {
+      message.error('获取图片详情失败');
+      setSelectedGroup(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
   const handleViewAllImages = (group) => {
-    setSelectedGroup(group);
+    // 先用列表元数据占位（全量图片为空触发 Spin），请求成功后整体替换
+    setSelectedGroup({ ...group, allImages: [] });
+    setVisibleCount(DETAIL_PAGE_SIZE);
+    loadGroupDetail(group._id);
   };
 
   const handleBackToGroups = () => {
@@ -191,16 +210,6 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     }
   };
 
-  const handleFavorite = (imageId) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(imageId)) {
-      newFavorites.delete(imageId);
-    } else {
-      newFavorites.add(imageId);
-    }
-    setFavorites(newFavorites);
-  };
-
   const handleDeleteImage = (postId, imageUrl) => {
     Modal.confirm({
       title: '确认删除',
@@ -211,12 +220,19 @@ const ImageBrowser = ({ filtersVisible = true }) => {
       onOk: async () => {
         try {
           message.loading({ content: '正在删除图片...', key: 'deleteImage' });
-          await browseApi.deleteImage(postId, imageUrl);
-          message.success({ content: '图片已删除', key: 'deleteImage' });
+          const res = await browseApi.deleteImage(postId, imageUrl);
+          message.success({ content: res.data?.message || '图片已删除', key: 'deleteImage' });
           // 关闭预览
           setPreviewImage(null);
-          // 刷新图片分组列表
+          // 刷新分组列表（总数/分组可能变化）
           fetchImageGroups(pagination.current, pagination.pageSize);
+          if (!res.data?.data) {
+            // 整个 Post 已被删除（删到最后一张且无正文），退出详情视图
+            setSelectedGroup(null);
+          } else {
+            // 同步详情数据，避免 allImages 与服务端不一致导致预览索引越界
+            loadGroupDetail(postId);
+          }
         } catch (error) {
           console.error('删除图片失败:', error);
           message.error({ content: '删除图片失败', key: 'deleteImage' });
@@ -355,12 +371,6 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                 重置
               </Button>
             </Col>
-            <Col>
-              <span>
-                共 {pagination.total} 个网页 | 第{' '}
-                {pagination.current} 页
-              </span>
-            </Col>
           </Row>
         </Space>
       </Card>
@@ -484,12 +494,18 @@ const ImageBrowser = ({ filtersVisible = true }) => {
             </Button>
           </div>
 
+          {detailLoading && selectedGroup.allImages.length === 0 ? (
+            <div style={{ padding: '80px 0', textAlign: 'center' }}>
+              <Spin size='large' />
+            </div>
+          ) : (
+            <>
           <Masonry
             breakpointCols={masonryBreakpoints}
             className='masonry-grid'
             columnClassName='masonry-column'
           >
-            {selectedGroup.allImages.map((image, index) => (
+            {selectedGroup.allImages.slice(0, visibleCount).map((image, index) => (
               <div key={index} className='masonry-item'>
                 <Card
                   hoverable
@@ -502,6 +518,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                         src={image.url}
                         alt={`图片 ${index + 1}`}
                         preview={false}
+                        loading='lazy'
                         style={{
                           width: '100%',
                           height: 'auto',
@@ -513,42 +530,45 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                   className='masonry-card'
                 >
                   <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <Button
-                      type='text'
-                      size='small'
-                      icon={
-                        favorites.has(`${selectedGroup._id}-${index}`) ? (
-                          <HeartFilled style={{ color: 'red' }} />
-                        ) : (
-                          <HeartOutlined />
-                        )
-                      }
-                      onClick={() => handleFavorite(`${selectedGroup._id}-${index}`)}
-                    />
-                    <Button
-                      type='text'
-                      size='small'
-                      icon={<DownloadOutlined />}
-                      onClick={() => handleDownload(image.url)}
-                    />
-                    <Button
-                      type='text'
-                      size='small'
-                      icon={<ShareAltOutlined />}
-                      onClick={() => handleShare(image.url)}
-                    />
-                    <Button
-                      type='text'
-                      size='small'
-                      danger
-                      icon={<DeleteOutlined />}
-                      onClick={() => handleDeleteImage(selectedGroup._id, image.url)}
-                    />
+                    <Tooltip title='下载图片'>
+                      <Button
+                        type='text'
+                        size='small'
+                        icon={<DownloadOutlined />}
+                        onClick={() => handleDownload(image.url)}
+                      />
+                    </Tooltip>
+                    <Tooltip title='分享图片'>
+                      <Button
+                        type='text'
+                        size='small'
+                        icon={<ShareAltOutlined />}
+                        onClick={() => handleShare(image.url)}
+                      />
+                    </Tooltip>
+                    <Tooltip title='删除图片'>
+                      <Button
+                        type='text'
+                        size='small'
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => handleDeleteImage(selectedGroup._id, image.url)}
+                      />
+                    </Tooltip>
                   </Space>
                 </Card>
               </div>
             ))}
           </Masonry>
+              {selectedGroup.allImages.length > visibleCount && (
+                <div style={{ textAlign: 'center', padding: '16px 0 32px' }}>
+                  <Button onClick={() => setVisibleCount((c) => c + DETAIL_PAGE_SIZE)}>
+                    加载更多（已显示 {visibleCount} / {selectedGroup.allImages.length} 张）
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -693,5 +713,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     </div>
   );
 };
+
+export default ImageBrowser;
 
 export default ImageBrowser;

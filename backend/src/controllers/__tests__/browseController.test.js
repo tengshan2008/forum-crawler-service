@@ -1,7 +1,6 @@
 jest.mock('../../services/browseService', () => ({
-  listImages: jest.fn(),
   listImageGroups: jest.fn(),
-  searchImages: jest.fn(),
+  getImageGroupDetail: jest.fn(),
   listNovels: jest.fn(),
   searchNovels: jest.fn(),
   getNovelContent: jest.fn(),
@@ -33,6 +32,7 @@ const makeReq = (overrides = {}) => ({
   params: {},
   query: {},
   body: {},
+  user: { userId: 'u1' },
   ...overrides,
 });
 
@@ -41,20 +41,6 @@ const listResult = (items) => ({ items, pagination: { page: 1, limit: 20, total:
 beforeEach(() => jest.clearAllMocks());
 
 describe('browseController 图片/小说浏览', () => {
-  it('getImages 传 query 并输出 data+pagination', async () => {
-    browseService.listImages.mockResolvedValue(listResult([{ _id: 'i1' }]));
-    const res = makeRes();
-
-    await controller.getImages(makeReq({ query: { page: '2' } }), res, jest.fn());
-
-    expect(browseService.listImages).toHaveBeenCalledWith({ page: '2' });
-    expect(res.json).toHaveBeenCalledWith({
-      success: true,
-      data: [{ _id: 'i1' }],
-      pagination: expect.objectContaining({ page: 1 }),
-    });
-  });
-
   it('getImageGroups 委托 listImageGroups', async () => {
     browseService.listImageGroups.mockResolvedValue(listResult([{ _id: 'g1' }]));
     const res = makeRes();
@@ -64,13 +50,17 @@ describe('browseController 图片/小说浏览', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
-  it('searchImages 传 body', async () => {
-    browseService.searchImages.mockResolvedValue(listResult([]));
+  it('getImageGroupDetail 透传 postId 并输出详情', async () => {
+    browseService.getImageGroupDetail.mockResolvedValue({ _id: 'g1', totalImages: 2 });
+
     const res = makeRes();
+    await controller.getImageGroupDetail(makeReq({ params: { postId: 'g1' } }), res, jest.fn());
 
-    await controller.searchImages(makeReq({ body: { keyword: 'cat' } }), res, jest.fn());
-
-    expect(browseService.searchImages).toHaveBeenCalledWith({ keyword: 'cat' });
+    expect(browseService.getImageGroupDetail).toHaveBeenCalledWith('g1');
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: { _id: 'g1', totalImages: 2 },
+    });
   });
 
   it('getNovels/searchNovels 分别委托 query/body', async () => {
@@ -105,7 +95,7 @@ describe('browseController 收藏夹', () => {
 
     await controller.createCollection(makeReq({ body: { name: '夹' } }), res, jest.fn());
 
-    expect(browseService.createCollection).toHaveBeenCalledWith({ name: '夹' });
+    expect(browseService.createCollection).toHaveBeenCalledWith('u1', { name: '夹' });
     expect(res.status).toHaveBeenCalledWith(201);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
@@ -128,7 +118,7 @@ describe('browseController 收藏夹', () => {
 
     await controller.getCollection(makeReq({ params: { id: 'c1' } }), res, jest.fn());
 
-    expect(browseService.getCollectionById).toHaveBeenCalledWith('c1');
+    expect(browseService.getCollectionById).toHaveBeenCalledWith('u1', 'c1');
   });
 
   it('addToCollection 透传 id/postId 与消息', async () => {
@@ -144,7 +134,7 @@ describe('browseController 收藏夹', () => {
       jest.fn()
     );
 
-    expect(browseService.addToCollection).toHaveBeenCalledWith('c1', 'p1');
+    expect(browseService.addToCollection).toHaveBeenCalledWith('u1', 'c1', 'p1');
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { _id: 'c1' },
@@ -164,7 +154,7 @@ describe('browseController 收藏夹', () => {
       jest.fn()
     );
 
-    expect(browseService.removeFromCollection).toHaveBeenCalledWith('c1', 'p1');
+    expect(browseService.removeFromCollection).toHaveBeenCalledWith('u1', 'c1', 'p1');
   });
 
   it('deleteCollection 输出消息（data 为 null）', async () => {
@@ -189,7 +179,7 @@ describe('browseController 收藏夹', () => {
       jest.fn()
     );
 
-    expect(browseService.updateCollection).toHaveBeenCalledWith('c1', { name: '新' });
+    expect(browseService.updateCollection).toHaveBeenCalledWith('u1', 'c1', { name: '新' });
   });
 });
 

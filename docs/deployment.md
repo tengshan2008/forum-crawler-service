@@ -328,6 +328,13 @@ docker exec forum-crawler-mongo mongodump -o /backup
 docker exec forum-crawler-mongo mongorestore /backup
 ```
 
+部分版本升级需在容器内执行一次性数据迁移脚本（幂等，可重复运行）：
+
+```bash
+# v2.12.0：为历史全局创建的收藏夹归属用户（userId=null → 首个 admin）
+docker exec forum-crawler-backend node scripts/migrateCollectionOwners.js
+```
+
 ---
 
 ## 安全建议

@@ -700,8 +700,12 @@ GET /health
 
 ## 其他模块
 
-- **浏览/检索 API**：`/api/browse/images`、`/api/browse/novels`、`/api/browse/collections/*` 等（图片/小说浏览、搜索、收藏夹管理），均需认证
-  - `GET /api/browse/images/groups`（内容浏览-图片 Tab 数据源）：按网页分组分页，查询参数 `page`、`limit`（默认 12）、`taskId`、`keyword`（标题/作者模糊匹配，服务端转义正则元字符）、`startDate`/`endDate`（`YYYY-MM-DD`，按自然日含结束日全天）、`sortBy`（默认 `-createdAt`）
+- **浏览/检索 API**：`/api/browse/images/groups`、`/api/browse/novels`、`/api/browse/collections/*` 等（图片/小说浏览、搜索、收藏夹管理），均需认证
+  - `GET /api/browse/collections`：收藏夹分页列表，响应含 `items`（Post ObjectId 数组）——前端据此一次请求推导内容已收藏状态（v2.11.0）；收藏粒度为整个 Post（`POST /collections/:id/items` body `{postId}`、`DELETE /collections/:id/items` body `{postId}`）
+  - **收藏夹按用户归属隔离（v2.12.0）**：全部端点以 JWT 身份（`req.user.userId`）过滤——列表/详情/增删改仅作用于本人收藏夹；`userId` 缺失返回 401，访问他人或不存在的一律 404（不泄露存在性）。历史全局收藏夹需运行 `backend/scripts/migrateCollectionOwners.js`（幂等，归属给首个 admin），否则升级后旧数据对所有人不可见；`isPublic` 字段保留但当前不参与可见性判定
+  - `GET /api/browse/images/groups`（内容浏览-图片 Tab 数据源）：按网页分组分页，查询参数 `page`、`limit`（默认 12）、`taskId`、`keyword`（标题/作者模糊匹配，服务端转义正则元字符）、`startDate`/`endDate`（`YYYY-MM-DD`，按自然日含结束日全天）、`sortBy`（默认 `-createdAt`）。每组仅返回前 4 张 `previewImages` 与 `totalImages`，不再携带全量 `allImages`
+  - `GET /api/browse/images/groups/:postId`：单组全量图片（详情视图数据源）；404=内容不存在/该内容没有图片，400=内容ID为空
+  - v2.10.7 起移除无调用方的 `GET /api/browse/images` 与 `POST /api/browse/images/search`（全表拉取内存分页，存在性能风险）
 - **管理 API**：`/api/admin/*`（用户管理、系统配置、监控），需 `admin` 角色
 - 响应结构与上述统一约定一致
 

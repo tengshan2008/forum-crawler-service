@@ -27,6 +27,7 @@ import { Modal } from 'antd';
 import dayjs from 'dayjs';
 import { browseApi, taskApi } from '../services/api';
 import NovelReader from './NovelReader';
+import CollectionPickerModal from './CollectionPickerModal';
 import './NovelBrowser.css';
 
 const { RangePicker } = DatePicker;
@@ -47,7 +48,9 @@ const NovelBrowser = ({ filtersVisible = true }) => {
     minWords: '',
     maxWords: '',
   });
-  const [favorites, setFavorites] = useState(new Set());
+  // 收藏夹数据与「收藏」弹窗目标内容（Post 级收藏）
+  const [collections, setCollections] = useState([]);
+  const [pickerNovel, setPickerNovel] = useState(null);
   const [readerDrawerVisible, setReaderDrawerVisible] = useState(false);
   const [selectedNovel, setSelectedNovel] = useState(null);
   const [readerLoading, setReaderLoading] = useState(false);
@@ -141,15 +144,24 @@ const NovelBrowser = ({ filtersVisible = true }) => {
     setFilters({ ...filters, [type]: value });
   };
 
-  const handleFavorite = (novelId) => {
-    const newFavorites = new Set(favorites);
-    if (newFavorites.has(novelId)) {
-      newFavorites.delete(novelId);
-    } else {
-      newFavorites.add(novelId);
+  // 收藏夹数据（items 为 postId 集合），一次请求即可推导小说的已收藏状态
+  const fetchCollections = useCallback(async () => {
+    try {
+      const res = await browseApi.getCollections({ page: 1, limit: 100 });
+      setCollections(res.data.data || []);
+    } catch (error) {
+      // 收藏夹加载失败不阻塞浏览主流程
     }
-    setFavorites(newFavorites);
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchCollections();
+  }, [fetchCollections]);
+
+  // 已收藏 Post 集合（心形点亮依据）
+  const favoritedNovelIds = new Set(
+    collections.flatMap((c) => (c.items || []).map(String))
+  );
 
   const handleShare = (novel) => {
     const shareText = `分享小说：${novel.title} 作者：${novel.author || '未知'} 字数：${novel.wordCount}`;
@@ -396,18 +408,24 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                         导出
                       </Button>
                       <Space style={{ width: '100%', justifyContent: 'center' }}>
-                        <Tooltip title='收藏'>
+                        <Tooltip
+                          title={
+                            favoritedNovelIds.has(String(novel._id))
+                              ? '已收藏，点击管理'
+                              : '收藏'
+                          }
+                        >
                           <Button
                             type='text'
                             size='small'
                             icon={
-                              favorites.has(novel._id) ? (
-                                <HeartFilled style={{ color: 'red' }} />
+                              favoritedNovelIds.has(String(novel._id)) ? (
+                                <HeartFilled style={{ color: '#eb2f96' }} />
                               ) : (
                                 <HeartOutlined />
                               )
                             }
-                            onClick={() => handleFavorite(novel._id)}
+                            onClick={() => setPickerNovel(novel)}
                           />
                         </Tooltip>
                         <Tooltip title='分享'>
@@ -493,6 +511,13 @@ const NovelBrowser = ({ filtersVisible = true }) => {
           <NovelReader novel={selectedNovel} />
         ) : null}
       </Drawer>
+      <CollectionPickerModal
+        open={!!pickerNovel}
+        post={pickerNovel}
+        collections={collections}
+        onClose={() => setPickerNovel(null)}
+        onChanged={fetchCollections}
+      />
     </div>
   );
 };

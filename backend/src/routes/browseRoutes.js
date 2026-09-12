@@ -6,25 +6,17 @@ const router = express.Router();
 // ============ 图片浏览路由 ============
 
 /**
- * GET /api/browse/images
- * 获取图片列表
- * 查询参数: page, limit, taskId, sortBy
- */
-router.get('/images', browseController.getImages);
-
-/**
  * GET /api/browse/images/groups
- * 获取按网页分组的图片列表
- * 查询参数: page, limit, taskId, sortBy
+ * 获取按网页分组的图片列表（每组仅含前 4 张预览）
+ * 查询参数: page, limit, taskId, keyword, startDate, endDate, sortBy
  */
 router.get('/images/groups', browseController.getImageGroups);
 
 /**
- * POST /api/browse/images/search
- * 搜索和筛选图片
- * 请求体: keyword, taskId, startDate, endDate, page, limit, sortBy
+ * GET /api/browse/images/groups/:postId
+ * 获取单个网页分组的全部图片（详情视图）
  */
-router.post('/images/search', browseController.searchImages);
+router.get('/images/groups/:postId', browseController.getImageGroupDetail);
 
 // ============ 小说浏览路由 ============
 

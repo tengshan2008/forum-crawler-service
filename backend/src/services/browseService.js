@@ -105,33 +105,9 @@ const buildNovelFilter = ({ taskId, startDate, endDate } = {}) => {
 };
 
 /**
- * 将帖子的 media 扁平化为单图片项列表
- */
-const flattenPostsToImages = (posts) => {
-  const images = [];
-  posts.forEach((post) => {
-    if (post.media && post.media.length > 0) {
-      post.media.forEach((img) => {
-        images.push({
-          _id: `${post._id}-${img.url}`,
-          postId: post._id,
-          postTitle: post.title,
-          author: post.author,
-          sourceUrl: post.sourceUrl,
-          taskId: post.taskId,
-          url: img.url,
-          originalUrl: img.originalUrl,
-          description: img.description,
-          createdAt: post.createdAt,
-        });
-      });
-    }
-  });
-  return images;
-};
-
-/**
  * 按帖子（网页源）构建图片分组
+ * 列表场景只返回前 4 张预览：单组可能有数百张图，全量 URL 会让列表响应膨胀十几倍；
+ * 详情视图（getImageGroupDetail）按 postId 单独拉全量
  */
 const buildImageGroups = (posts) =>
   posts.map((post) => ({
@@ -144,11 +120,6 @@ const buildImageGroups = (posts) =>
     totalImages: post.media.length,
     previewImages: post.media.slice(0, 4).map((img) => ({
       url: img.url,
-      description: img.description,
-    })),
-    allImages: post.media.map((img) => ({
-      url: img.url,
-      originalUrl: img.originalUrl,
       description: img.description,
     })),
   }));
@@ -180,30 +151,6 @@ const POST_LIST_SELECT = 'title author sourceUrl taskId media createdAt';
 const NOVEL_SELECT = 'title author content sourceUrl taskId createdAt views likes replies';
 
 // ============ 数据访问 ============
-
-/**
- * 获取图片列表（扁平化 + 应用层分页）
- */
-async function listImages(query) {
-  const { page = 1, limit = 20, taskId, sortBy = '-createdAt' } = query;
-  const pageNum = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNum - 1) * pageSize;
-
-  const filter = buildImageFilter({ taskId });
-
-  const allPosts = await Post.find(filter)
-    .select(POST_LIST_SELECT)
-    .sort(sortBy);
-
-  const allImages = flattenPostsToImages(allPosts);
-  const items = allImages.slice(skip, skip + pageSize);
-
-  return {
-    items,
-    pagination: buildPagination({ page: pageNum, limit: pageSize, total: allImages.length }),
-  };
-}
 
 /**
  * 获取按网页分组的图片列表（支持任务/关键词标题作者/时间范围筛选）
@@ -239,35 +186,40 @@ async function listImageGroups(query) {
 }
 
 /**
- * 搜索和筛选图片
+ * 获取单个网页分组的全部图片（详情视图）
+ * 列表接口只带前 4 张预览以压缩响应体，进入详情时再按 postId 拉全量
  */
-async function searchImages(body) {
-  const {
-    keyword,
-    taskId,
-    startDate,
-    endDate,
-    page = 1,
-    limit = 20,
-    sortBy = '-createdAt',
-  } = body;
+async function getImageGroupDetail(postId) {
+  if (!postId) {
+    throw new AppError('内容ID不能为空', 400);
+  }
 
-  const pageNum = parseInt(page);
-  const pageSize = parseInt(limit);
-  const skip = (pageNum - 1) * pageSize;
-
-  const filter = buildImageFilter({ keyword, taskId, startDate, endDate });
-
-  const allPosts = await Post.find(filter)
+  const post = await Post.findById(postId)
     .select(POST_LIST_SELECT)
-    .sort(sortBy);
+    .maxTimeMS(QUERY_TIMEOUT_MS)
+    .lean();
 
-  const allImages = flattenPostsToImages(allPosts);
-  const items = allImages.slice(skip, skip + pageSize);
+  if (!post) {
+    throw new AppError('内容不存在', 404);
+  }
+
+  const media = Array.isArray(post.media) ? post.media : [];
+  if (media.length === 0) {
+    throw new AppError('该内容没有图片', 404);
+  }
 
   return {
-    items,
-    pagination: buildPagination({ page: pageNum, limit: pageSize, total: allImages.length }),
+    _id: post._id,
+    title: post.title,
+    author: post.author,
+    sourceUrl: post.sourceUrl,
+    taskId: post.taskId,
+    createdAt: post.createdAt,
+    totalImages: media.length,
+    allImages: media.map((img) => ({
+      url: img.url,
+      description: img.description,
+    })),
   };
 }
 
@@ -443,7 +395,10 @@ async function getNovelContent(id) {
 /**
  * 创建收藏夹
  */
-async function createCollection({ name, description, isPublic, tags }) {
+async function createCollection(userId, { name, description, isPublic, tags }) {
+  if (!userId) {
+    throw new AppError('缺少用户身份，无法创建收藏夹', 401);
+  }
   if (!name) {
     throw new AppError('收藏夹名称不能为空', 400);
   }
@@ -453,25 +408,31 @@ async function createCollection({ name, description, isPublic, tags }) {
     description: description || '',
     isPublic: isPublic || false,
     tags: tags || [],
+    userId,
   });
 }
 
 /**
  * 获取收藏夹列表
+ * 返回体携带 items（Post ObjectId 数组）：前端一次请求即可推导内容的已收藏状态，
+ * 无需进入详情逐夹查询；items 为纯 id 引用，响应体增量可忽略
  */
-async function listCollections(query) {
+async function listCollections(userId, query) {
   const { page = 1, limit = 20 } = query;
   const pageNum = parseInt(page);
   const pageSize = parseInt(limit);
   const skip = (pageNum - 1) * pageSize;
 
-  const collections = await Collection.find()
-    .select('name description coverImage itemCount isPublic tags createdAt')
+  // 个人收藏夹：仅返回当前用户所有（历史全局数据经迁移脚本归属到首个 admin）
+  const filter = { userId };
+
+  const collections = await Collection.find(filter)
+    .select('name description coverImage items itemCount isPublic tags createdAt')
     .sort('-createdAt')
     .skip(skip)
     .limit(pageSize);
 
-  const total = await Collection.countDocuments();
+  const total = await Collection.countDocuments(filter);
 
   return {
     items: collections,
@@ -482,8 +443,9 @@ async function listCollections(query) {
 /**
  * 获取单个收藏夹详情
  */
-async function getCollectionById(id) {
-  const collection = await Collection.findById(id).populate({
+async function getCollectionById(userId, id) {
+  // _id+userId 联合查询：他人/不存在的收藏夹统一 404，不泄露存在性
+  const collection = await Collection.findOne({ _id: id, userId }).populate({
     path: 'items',
     select: 'title author media content postType createdAt',
   });
@@ -498,7 +460,7 @@ async function getCollectionById(id) {
 /**
  * 添加内容到收藏夹（已存在时幂等返回）
  */
-async function addToCollection(id, postId) {
+async function addToCollection(userId, id, postId) {
   if (!postId) {
     throw new AppError('内容ID不能为空', 400);
   }
@@ -508,7 +470,7 @@ async function addToCollection(id, postId) {
     throw new AppError('内容不存在', 404);
   }
 
-  const collection = await Collection.findById(id);
+  const collection = await Collection.findOne({ _id: id, userId });
   if (!collection) {
     throw new AppError('收藏夹不存在', 404);
   }
@@ -528,12 +490,12 @@ async function addToCollection(id, postId) {
 /**
  * 从收藏夹移除内容
  */
-async function removeFromCollection(id, postId) {
+async function removeFromCollection(userId, id, postId) {
   if (!postId) {
     throw new AppError('内容ID不能为空', 400);
   }
 
-  const collection = await Collection.findById(id);
+  const collection = await Collection.findOne({ _id: id, userId });
   if (!collection) {
     throw new AppError('收藏夹不存在', 404);
   }
@@ -550,8 +512,8 @@ async function removeFromCollection(id, postId) {
 /**
  * 删除收藏夹
  */
-async function deleteCollection(id) {
-  const collection = await Collection.findByIdAndDelete(id);
+async function deleteCollection(userId, id) {
+  const collection = await Collection.findOneAndDelete({ _id: id, userId });
   if (!collection) {
     throw new AppError('收藏夹不存在', 404);
   }
@@ -561,11 +523,11 @@ async function deleteCollection(id) {
 /**
  * 更新收藏夹
  */
-async function updateCollection(id, fields) {
+async function updateCollection(userId, id, fields) {
   const { name, description, isPublic, tags, coverImage } = fields;
 
-  const collection = await Collection.findByIdAndUpdate(
-    id,
+  const collection = await Collection.findOneAndUpdate(
+    { _id: id, userId },
     { name, description, isPublic, tags, coverImage },
     { new: true, runValidators: true }
   );
@@ -687,15 +649,13 @@ module.exports = {
   buildPagination,
   buildImageFilter,
   buildNovelFilter,
-  flattenPostsToImages,
   buildImageGroups,
   enrichNovels,
   escapeRegExp,
   countCache,
   // 数据访问
-  listImages,
   listImageGroups,
-  searchImages,
+  getImageGroupDetail,
   listNovels,
   searchNovels,
   getNovelContent,

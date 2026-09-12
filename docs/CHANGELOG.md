@@ -1,5 +1,66 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.12.0 - 个人收藏夹（按用户归属隔离）
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **后端归属过滤**：Collection 全部操作（列表/创建/详情/添加/移除/更新/删除）以 JWT 身份（`req.user.userId`）为作用域——`createCollection` 落库携带 `userId`；查询/写入均按 `_id + userId` 联合条件
+  - 越权语义统一：访问他人或不存在的一律 404（不泄露存在性）；`userId` 缺失返回 401
+  - 底层调用迁移：`findById/findByIdAndUpdate/findByIdAndDelete` → `findOne/findOneAndUpdate/findOneAndDelete`（附归属过滤条件）
+- **历史数据迁移**：新增 `backend/scripts/migrateCollectionOwners.js`（幂等）——把 `userId=null` 的历史全局收藏夹归属给首个 admin（沿用 `migrateTasksUserIds.js` 策略）；升级后不执行则旧数据对所有人不可见
+- **前端零改动**：收藏夹接口按身份天然过滤，`CollectionPickerModal` 与两个浏览页无需调整；此前担心的"全局共享"问题就此闭环
+- 说明：`isPublic` 字段保留但暂不参与可见性判定；收藏夹名称未加用户内唯一约束（现有数据量下无冲突场景）
+- 测试：browse 相关 54 例全绿（收藏夹块整块重写为归属语义：401 守卫、userId 过滤断言、越权 404；Collection mock 切换为 findOne 系列）；后端全量仅 taskEventBus 7 例既有基线失败；前端 build + Vitest 18 全绿（无代码改动，回归确认）
+- 文档：`docs/api.md`（收藏夹归属语义与迁移）、`docs/deployment.md`（升级指南·数据迁移增加容器内执行脚本示例）
+
+## 版本 2.11.0 - 接入真实收藏夹
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **前后端收藏链路打通**：图片/小说浏览页的心形按钮由内存 `Set`（刷新即丢）切换为真实 `/api/browse/collections` 收藏夹
+  - 后端 `GET /api/browse/collections` 响应新增 `items`（Post ObjectId 数组）：前端一次请求即可推导内容已收藏状态，无需逐夹查详情；纯 id 引用，响应体增量可忽略
+  - 修复 `browseApi.removeFromCollection` 与后端路由不匹配（前端原走 `DELETE /items/:itemId` 路径参数，后端实际是 `DELETE /items` + body `{postId}`，原实现必然 404）；`addToCollection` 签名规范化为 `(id, postId)`
+  - 新增共用组件 `CollectionPickerModal`：勾选收藏夹即时增删（幂等），支持「新建并收藏」；图片 Tab（分组卡片心形）与小说 Tab（卡片心形）共用，操作后自动刷新收藏状态
+  - 收藏粒度说明：后端 `Collection.items` 为 Post 级引用——收藏对象是整个网页/组而非单张图，图片 Tab 心形从详情瀑布流移到分组卡片；Collection 无用户归属隔离（`userId` 预留字段默认 null），当前为全局共享
+- 测试：browse 相关后端 53 例全绿；前端 Vitest 18 例全绿（新增 4 例收藏端点用例，含 DELETE body 路由对齐断言）；vite build 通过
+- 文档：`docs/api.md` 收藏夹端点说明同步
+
+## 版本 2.10.9 - 内容浏览页 P2 交互与视觉优化
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **裂图占位**：图片浏览卡片预览与详情瀑布流的 `Image` 统一加 `fallback`（内联 SVG 数据 URI「图片加载失败」占位），单图失效不再出现裂图图标；不足 4 张的分组预览格由占位图自然填充
+- **「+N 张」角标可读性**：`ImageBrowser.css` 由白字+半透明白底（几乎不可见）改为白字+深色半透明底 `rgba(0,0,0,0.55)`
+- **移除误导性收藏红心**：红心仅存组件内存 `Set`（刷新即丢），后端收藏夹 API 未接入；先删除按钮与状态避免误导，待接入收藏夹时按后端 `/api/browse/collections` 重新设计
+- **文案去重**：筛选卡「共 N 个网页 | 第 X 页」与分页器 `showTotal` 重复，删除前者（列表页统计由分页器承担）
+- **icon-only 按钮补 Tooltip**：卡片「删除整个网页」、瀑布流「下载图片/分享图片/删除图片」
+- 说明：`handleDownload` 的 `a[download]` 此前担心的跨源失效问题已因图片路径统一为同源 `/public/...`（v2.10.4）而自然消除，无需改造
+- 验证：`vite build` 通过、Vitest 14 全绿；本版本期间 IDE 打开 ImageBrowser.jsx 多次回退工具编辑（含丢失 `DEFAULT_FILTERS`/`DETAIL_PAGE_SIZE` 常量、favorite 状态残留、重复 default export），另修复脚本写入时模板插值缺 `}` 的笔误，最终全部改动已 grep 落盘核验
+
+## 版本 2.10.8 - 内容浏览页 P1 性能优化
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **图片分组列表响应瘦身**：`GET /api/browse/images/groups` 不再返回全量 `allImages`（此前一页 12 组、单组最多数百张 URL，响应体膨胀十几倍），仅保留前 4 张 `previewImages` + `totalImages`
+  - 新增 `GET /api/browse/images/groups/:postId`（browseService.getImageGroupDetail）：进入详情时按需拉取单组全量图片，404=内容不存在/无图片、400=缺内容ID
+  - 移除无任何调用方的 `GET /api/browse/images` 与 `POST /api/browse/images/search`（`listImages`/`searchImages`/`flattenPostsToImages` 全链路删除）：两者均为全表拉取后内存分页，数据量增长后必然劣化；前端实际只用 groups 接口
+- **详情页渲染优化**（ImageBrowser）：瀑布流改为增量渲染（首次 60 张 + 「加载更多」每次 60 张），`<img loading="lazy">` 懒加载；进入详情先以列表元数据占位 + Spin，请求成功后整体替换
+- **删图后数据同步**：删除单张图后按响应判断——整个 Post 被删（data 为 null）则退出详情，否则重新拉取详情，修复原先 `selectedGroup.allImages` 不更新导致的预览索引越界隐患
+- **静态资源长缓存**：`/public` 的 `express.static` 增加 `maxAge: '30d' + immutable`（文件名为内容 md5，内容寻址、同名即同内容，可安全长缓存）
+- 测试：browseService/browseController 相关 53 例全绿（新增 detail 用例、列表瘦身断言，移除已删函数用例）；后端全量仅 taskEventBus 7 例失败（ioredis mock 跨文件污染，v2.9.0 前既有基线）；前端 vite build 通过、Vitest 14 全绿
+- 文档：`docs/api.md` 浏览 API 段同步（新端点、列表响应瘦身、端点移除）
+- 环境注意：开发/生产环境重启后端生效；`/public` 长缓存要求后续**不得复用同名文件存不同内容**（当前 md5 命名已满足）
+
+## 版本 2.10.7 - 批量写库 `replacement can not include $ operators` P0 热修
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- 现象：线上任务批量保存阶段报 `✗ 批量保存失败: ValueError: replacement can not include $ operators`（`crawl.py` `_flush_post_buffer` 的 `bulk_write` 调用处）
+- 根因：v2.3.0 引入批量写库时，把 `build_upsert_updates` 产出的更新操作符载荷（`$set`/`$setOnInsert`）传给了 `ReplaceOne`。`ReplaceOne` 的 replacement 必须是不含 `$` 操作符的整篇替换文档，且 pymongo 在 `bulk_write` 调用时才校验（构造 `ReplaceOne` 本身不报错），本地用 FakeCollection mock 掉 `bulk_write` 的测试因此全绿，真库才暴露
+- 修复：`_flush_post_buffer` 改用 `UpdateOne(filter, 载荷, upsert=True)`；upsert 语义不变（`updatedAt` 每次写入、`createdAt` 仅 `$setOnInsert` 首次插入写入），`build_upsert_updates` 载荷本就为 update 语义设计，无需改动
+- 测试：`test_batch_write.py` 断言改 `UpdateOne`，新增回归用例（经 pymongo `validate_ok_for_update` 官方校验载荷，防再误用 ReplaceOne）；crawler pytest 85 例全绿
+- 部署动作：拉取本修复后需**重新构建镜像**（代码打进镜像 `/app/crawler`，旧镜像重启不更新）；dev 环境 bind mount 即生效
+
 ## 版本 2.10.6 - Docker 部署 `No module named 'lib'` 真正根因热修
 **发布日期**: 2026-09-12
 **状态**: ✅ 已完成

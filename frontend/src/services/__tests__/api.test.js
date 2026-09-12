@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import api, { taskApi } from '../api';
+import api, { taskApi, browseApi } from '../api';
 
 // 用自定义 adapter 拦截真实 axios 实例，避免真实网络请求
 let capturedConfig;
@@ -77,5 +77,35 @@ describe('api.js 响应拦截器', () => {
     expect(localStorage.getItem('accessToken')).toBeNull();
     expect(localStorage.getItem('user')).toBeNull();
     // jsdom 不支持真实导航，location.href 赋值结果无法断言，仅验证清理逻辑
+  });
+});
+
+describe('browseApi 收藏夹端点', () => {
+  it('getCollections 走 GET /browse/collections 并透传分页参数', async () => {
+    await browseApi.getCollections({ page: 1, limit: 100 });
+    expect(capturedConfig.method).toBe('get');
+    expect(capturedConfig.url).toBe('/browse/collections');
+    expect(capturedConfig.params).toEqual({ page: 1, limit: 100 });
+  });
+
+  it('addToCollection 以 { postId } 为请求体 POST /items', async () => {
+    await browseApi.addToCollection('c1', 'p1');
+    expect(capturedConfig.method).toBe('post');
+    expect(capturedConfig.url).toBe('/browse/collections/c1/items');
+    expect(capturedConfig.data).toBe(JSON.stringify({ postId: 'p1' }));
+  });
+
+  it('removeFromCollection 与后端路由对齐：DELETE /items + body { postId }', async () => {
+    await browseApi.removeFromCollection('c1', 'p1');
+    expect(capturedConfig.method).toBe('delete');
+    expect(capturedConfig.url).toBe('/browse/collections/c1/items');
+    expect(capturedConfig.data).toBe(JSON.stringify({ postId: 'p1' }));
+  });
+
+  it('createCollection 走 POST /browse/collections', async () => {
+    await browseApi.createCollection({ name: '默认收藏夹' });
+    expect(capturedConfig.method).toBe('post');
+    expect(capturedConfig.url).toBe('/browse/collections');
+    expect(capturedConfig.data).toBe(JSON.stringify({ name: '默认收藏夹' }));
   });
 });

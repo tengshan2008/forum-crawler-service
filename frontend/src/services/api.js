@@ -105,10 +105,9 @@ export const postApi = {
 
 // Browse API
 export const browseApi = {
-  // Image API
-  getImages: (params) => api.get('/browse/images', { params }),
+  // Image API（列表仅含每组前 4 张预览，全量走 getImageGroupDetail）
   getImageGroups: (params) => api.get('/browse/images/groups', { params }),
-  searchImages: (data) => api.post('/browse/images/search', data),
+  getImageGroupDetail: (postId) => api.get(`/browse/images/groups/${postId}`),
   
   // Novel API
   getNovels: (params) => api.get('/browse/novels', { params }),
@@ -120,14 +119,15 @@ export const browseApi = {
   deleteImage: (postId, imageUrl) => api.delete(`/browse/posts/${postId}/images`, { data: { imageUrl } }),
   deleteImages: (postId, imageUrls) => api.delete(`/browse/posts/${postId}/images/batch`, { data: { imageUrls } }),
   
-  // Collection API
+  // Collection API（收藏粒度为整个 Post，items 为 postId 数组）
   createCollection: (data) => api.post('/browse/collections', data),
   getCollections: (params) => api.get('/browse/collections', { params }),
   getCollection: (id) => api.get(`/browse/collections/${id}`),
   updateCollection: (id, data) => api.put(`/browse/collections/${id}`, data),
   deleteCollection: (id) => api.delete(`/browse/collections/${id}`),
-  addToCollection: (id, data) => api.post(`/browse/collections/${id}/items`, data),
-  removeFromCollection: (id, itemId) => api.delete(`/browse/collections/${id}/items/${itemId}`),
+  addToCollection: (id, postId) => api.post(`/browse/collections/${id}/items`, { postId }),
+  removeFromCollection: (id, postId) =>
+    api.delete(`/browse/collections/${id}/items`, { data: { postId } }),
 };
 
 export default api;
