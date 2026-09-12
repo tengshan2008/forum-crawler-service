@@ -75,4 +75,8 @@ CollectionSchema.index({ tags: 1 });
 CollectionSchema.index({ isPublic: 1 });
 CollectionSchema.index({ createdAt: -1 });
 
+// 用户内名称唯一（v2.12.1）：不同用户允许同名；
+// 历史 userId=null 文档由 migrateCollectionOwners.js 归属后不会落入同一桶
+CollectionSchema.index({ userId: 1, name: 1 }, { unique: true, background: true });
+
 module.exports = mongoose.model('Collection', CollectionSchema);

@@ -42,10 +42,15 @@ backend/
     │   ├── authMiddleware.js                 # JWT 认证中间件
     │   ├── rateLimiter.js                    # 认证端点限流（20 次/15 分钟/IP）
     │   └── cors.js                           # CORS 白名单中间件
-    └── utils/
-        ├── AppError.js                       # 自定义错误类
-        ├── respond.js                        # 统一响应格式 sendSuccess
-        └── catchAsync.js                     # 异步错误包装器
+    ├── utils/
+    │   ├── AppError.js                       # 自定义错误类
+    │   ├── respond.js                        # 统一响应格式 sendSuccess
+    │   └── catchAsync.js                     # 异步错误包装器
+└── scripts/
+    ├── create-admin.js                       # 管理员账号创建脚本
+    ├── migrateTasksUserIds.js                # 存量任务 userId 回填（归属首个 admin，幂等）
+    ├── migrateCollectionOwners.js            # 存量收藏夹 userId 回填（幂等，v2.12.0）
+    └── migratePostsUserIds.js                # 存量帖子 userId 回填（幂等，v2.13.0 内容数据隔离前置）
 ```
 
 ### 爬虫文件 (Crawler - Python)

@@ -31,6 +31,25 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+describe('api.js 409 透传（收藏夹重名）', () => {
+  it('409 响应原样 reject 且携带后端 message（无全局副作用提示）', async () => {
+    adapterReject = {
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { success: false, message: '同名收藏夹已存在' },
+      },
+    };
+
+    await expect(browseApi.createCollection({ name: '测试夹' })).rejects.toMatchObject({
+      response: {
+        status: 409,
+        data: { message: '同名收藏夹已存在' },
+      },
+    });
+  });
+});
+
 describe('api.js 基础配置', () => {
   it('默认 baseURL 为相对路径 /api（走 nginx 代理）', async () => {
     vi.resetModules();

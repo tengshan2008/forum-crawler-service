@@ -1,5 +1,53 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.13.0 - 内容浏览数据按用户隔离
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **问题**：不同用户看到的内容预览完全一样——browseService 的内容查询（图片组列表/详情、小说列表/搜索/内容、删除、统计）完全没有用户过滤；且 `browseRoutes.js` 根本没挂 authMiddleware，`/api/browse/*` 匿名即可访问（收藏夹端点 `req.user.userId` 实际依赖这个缺失的中间件）
+- **修复**：
+  - `browseRoutes.js` 全域挂载 `authMiddleware`：匿名访问一律 401
+  - `browseService.js` 新增 `buildVisibilityFilter`（语义镜像 postController：普通用户仅本人帖子或 `visibility: 'public'`，admin 全量）与 `applyVisibility` 合并助手；关键词搜索占用顶层 `$or` 时与可见性经 `$and` 组合，`$text` 保持在查询根层
+  - 内容类全部数据访问按作用域查询：`findById→findOne({_id,...vis})`、`findByIdAndUpdate→findOneAndUpdate`、`findByIdAndDelete→findOneAndDelete`；他人且非 public 的帖子读取/删除/收藏统一 404 不泄露存在性
+  - 计数缓存 key 携带 userId（`novels_count_<userId>_...` / `search_count_<userId>_...`），跨用户计数不再互相污染
+  - `Post.js` 补 `{ userId: 1, postType: 1, createdAt: -1 }` 复合索引
+  - 新增 `backend/scripts/migratePostsUserIds.js`：回填历史缺 `userId` 的帖子（幂等，归属首个 admin；与 migrateTasksUserIds 同策略）
+- **前端**：无需改动（JWT 经 axios 拦截器自动携带，隔离纯后端实现）
+- **验证**：browse service/controller 67 例全绿（新增可见性过滤、$and 组合、缓存按用户隔离、越权 404 等用例）；全量 253 例中仅 taskEventBus.test.js 7 例失败——经 `git stash` 基线复验为改动前已存在的 ioredis mock 跨文件污染问题，与本次无关
+- **升级注意**：存量库需执行 `node backend/scripts/migratePostsUserIds.js`，否则历史帖子对普通用户不可见（admin 不受影响）
+- 文档：`docs/api.md` browse 域数据隔离说明同步
+
+## 版本 2.12.3 - 错误响应不再透传堆栈
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **问题**：登录失败等走全局 errorHandler 的错误，在 `NODE_ENV=development`（本机 .env 即此值）下 HTTP 响应携带 `stack` 字段，泄露服务端文件路径等内部信息
+- **修复**：`errorHandler.js` 移除响应中的 `stack` 透传——堆栈本来就已通过 consola.error 写入服务端日志（docker logs 可见），任何环境响应统一为 `{success:false, message}`
+- **为什么不改 NODE_ENV**：`authController` 用 `NODE_ENV === 'production'` 控制 refresh cookie 的 `secure` 标志，本机为 HTTP 直连，切 production 会导致浏览器拒收 cookie、登录全挂；且 mongoose 索引/其他行为也可能受影响
+- **验证**：curl 实测登录失败响应不再含 stack；auth/middlewares/config 相关 44 例全绿
+- 文档：`docs/api.md` 错误响应说明同步
+
+## 版本 2.12.2 - 热修内容浏览页白屏（DETAIL_PAGE_SIZE 未定义）
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **根因**：v2.12.0 引入详情瀑布流增量渲染时，IDE 部分回退丢掉了 `DETAIL_PAGE_SIZE` 常量定义但保留 3 处使用（`useState` 初值、「查看全部」重置、加载更多），带病入库——已登录访问 `/browse` 图片 Tab 即 `ReferenceError: DETAIL_PAGE_SIZE is not defined` 整树卸载白屏；未登录时先被 PrivateRoute 重定向故未暴露。Rollup 对自由变量不报错，`vite build` 拦不住
+- **修复**：`ImageBrowser.jsx` 补回 `const DETAIL_PAGE_SIZE = 60`（60 依 v2.12.0 CHANGELOG「首次 60 张 + 每次加载 60 张」）
+- **同版本附带清理**（ImageBrowser）：移除未使用的 `React` 导入与 `favorites`/`setFavorites` 残留 state；Modal `visible`→`open`、`bodyStyle`→`styles.body`（antd v5 写法）
+- **验证**：浏览器实测已登录 `/browse` 渲染正常（Tab/筛选/分组卡片全出，控制台无 ReferenceError）；`vite build` 通过；Vitest 24 全绿
+- **教训**：v2.12.0 当时的「grep 落盘核验」只核了改动处、漏了「定义丢失、使用残留」这类跨位置 partial revert；后续对 IDE 打开中的文件，除核验编辑 hunk 外还需跑运行时冒烟（或引入 eslint no-undef 兜底）
+
+## 版本 2.12.1 - 收藏夹名称用户内唯一索引
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **模型**：`Collection` 新增复合唯一索引 `{ userId: 1, name: 1 }`——同一用户内名称唯一，不同用户允许同名；随 Mongoose autoIndex 在后端启动时自动创建，存量库经 `Collection.syncIndexes()` 手动同步（本环境已建并验证）
+- **服务**：`createCollection`/`updateCollection` 捕获重复键错误（code 11000）转 409「同名收藏夹已存在」；其他错误原样抛出
+- **TDD**：新增 3 用例（创建重名→409、更新重名→409、非重复键错误穿透），browse 相关 57 例全绿
+- **线上验证**：syncIndexes 建索引成功（unique=true）；行为实测——同用户重名插入被拦截（11000）、跨用户同名放行、测试数据已清理（库回到 0 条）
+- 文档：`docs/api.md` 补充唯一约束与 409 语义
+- **前端**：`CollectionPickerModal` 创建路径接入重名拦截——新增纯函数 `findDuplicateCollectionName`（精确匹配，与唯一索引同语义）客户端预检（即时反馈、省一次往返），后端 409「同名收藏夹已存在」精确文案经 `error.response.data.message` 透出（替换原写死的「创建收藏夹失败」）；勾选/取消失败同样透出后端文案。Vitest 新增 6 例（纯函数 5 + api 409 透传 1），共 24 例全绿
+
 ## 版本 2.12.0 - 个人收藏夹（按用户归属隔离）
 **发布日期**: 2026-09-12
 **状态**: ✅ 已完成

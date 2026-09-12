@@ -32,46 +32,49 @@ const makeReq = (overrides = {}) => ({
   params: {},
   query: {},
   body: {},
-  user: { userId: 'u1' },
+  user: reqUser,
   ...overrides,
 });
+
+const reqUser = { userId: 'u1', role: 'user' };
 
 const listResult = (items) => ({ items, pagination: { page: 1, limit: 20, total: 1, pages: 1 } });
 
 beforeEach(() => jest.clearAllMocks());
 
 describe('browseController 图片/小说浏览', () => {
-  it('getImageGroups 委托 listImageGroups', async () => {
+  it('getImageGroups 透传 query 与 user 并委托 listImageGroups', async () => {
     browseService.listImageGroups.mockResolvedValue(listResult([{ _id: 'g1' }]));
     const res = makeRes();
 
-    await controller.getImageGroups(makeReq(), res, jest.fn());
+    await controller.getImageGroups(makeReq({ query: { page: '2' } }), res, jest.fn());
 
+    expect(browseService.listImageGroups).toHaveBeenCalledWith({ page: '2' }, reqUser);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
-  it('getImageGroupDetail 透传 postId 并输出详情', async () => {
+  it('getImageGroupDetail 透传 postId/user 并输出详情', async () => {
     browseService.getImageGroupDetail.mockResolvedValue({ _id: 'g1', totalImages: 2 });
 
     const res = makeRes();
     await controller.getImageGroupDetail(makeReq({ params: { postId: 'g1' } }), res, jest.fn());
 
-    expect(browseService.getImageGroupDetail).toHaveBeenCalledWith('g1');
+    expect(browseService.getImageGroupDetail).toHaveBeenCalledWith('g1', reqUser);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { _id: 'g1', totalImages: 2 },
     });
   });
 
-  it('getNovels/searchNovels 分别委托 query/body', async () => {
+  it('getNovels/searchNovels 分别委托 query/body 并携带 user', async () => {
     browseService.listNovels.mockResolvedValue(listResult([{ _id: 'n1' }]));
     browseService.searchNovels.mockResolvedValue(listResult([]));
 
     await controller.getNovels(makeReq({ query: { lastId: 'x' } }), makeRes(), jest.fn());
-    expect(browseService.listNovels).toHaveBeenCalledWith({ lastId: 'x' });
+    expect(browseService.listNovels).toHaveBeenCalledWith({ lastId: 'x' }, reqUser);
 
     await controller.searchNovels(makeReq({ body: { keyword: 'k' } }), makeRes(), jest.fn());
-    expect(browseService.searchNovels).toHaveBeenCalledWith({ keyword: 'k' });
+    expect(browseService.searchNovels).toHaveBeenCalledWith({ keyword: 'k' }, reqUser);
   });
 
   it('getNovelContent 输出小说数据', async () => {
@@ -80,7 +83,7 @@ describe('browseController 图片/小说浏览', () => {
 
     await controller.getNovelContent(makeReq({ params: { id: 'n1' } }), res, jest.fn());
 
-    expect(browseService.getNovelContent).toHaveBeenCalledWith('n1');
+    expect(browseService.getNovelContent).toHaveBeenCalledWith('n1', reqUser);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { _id: 'n1', content: '正文' },
@@ -134,7 +137,7 @@ describe('browseController 收藏夹', () => {
       jest.fn()
     );
 
-    expect(browseService.addToCollection).toHaveBeenCalledWith('u1', 'c1', 'p1');
+    expect(browseService.addToCollection).toHaveBeenCalledWith('u1', 'c1', 'p1', reqUser);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { _id: 'c1' },
@@ -194,25 +197,26 @@ describe('browseController 缓存/统计/删除', () => {
     expect(res.json).toHaveBeenCalledWith({ success: true, data: null, message: '缓存已清除' });
   });
 
-  it('getStats 输出统计数据', async () => {
+  it('getStats 透传 user 并输出统计数据', async () => {
     browseService.getStats.mockResolvedValue({ novels: { total: 1 }, images: { total: 2 } });
     const res = makeRes();
 
     await controller.getStats(makeReq(), res, jest.fn());
 
+    expect(browseService.getStats).toHaveBeenCalledWith(reqUser);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { novels: { total: 1 }, images: { total: 2 } },
     });
   });
 
-  it('deleteNovel 透传 id 并输出消息+数据', async () => {
+  it('deleteNovel 透传 id/user 并输出消息+数据', async () => {
     browseService.deleteNovel.mockResolvedValue({ post: { _id: 'n1' }, message: '小说已删除' });
     const res = makeRes();
 
     await controller.deleteNovel(makeReq({ params: { id: 'n1' } }), res, jest.fn());
 
-    expect(browseService.deleteNovel).toHaveBeenCalledWith('n1');
+    expect(browseService.deleteNovel).toHaveBeenCalledWith('n1', reqUser);
     expect(res.json).toHaveBeenCalledWith({
       success: true,
       data: { _id: 'n1' },
@@ -229,7 +233,7 @@ describe('browseController 缓存/统计/删除', () => {
       jest.fn()
     );
 
-    expect(browseService.deleteImage).toHaveBeenCalledWith('p1', 'u1');
+    expect(browseService.deleteImage).toHaveBeenCalledWith('p1', 'u1', reqUser);
   });
 
   it('deleteImages 透传 id 与 imageUrls 数组', async () => {
@@ -242,7 +246,7 @@ describe('browseController 缓存/统计/删除', () => {
       jest.fn()
     );
 
-    expect(browseService.deleteImages).toHaveBeenCalledWith('p1', ['u1', 'u2']);
+    expect(browseService.deleteImages).toHaveBeenCalledWith('p1', ['u1', 'u2'], reqUser);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ message: '已删除 2 张图片' }));
   });
 });

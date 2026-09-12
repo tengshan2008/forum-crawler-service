@@ -10,7 +10,7 @@ const { sendSuccess } = require('../utils/respond');
  * 获取按网页分组的图片列表
  */
 exports.getImageGroups = catchAsync(async (req, res) => {
-  const { items, pagination } = await browseService.listImageGroups(req.query);
+  const { items, pagination } = await browseService.listImageGroups(req.query, req.user);
   sendSuccess(res, { data: items, pagination });
 });
 
@@ -18,7 +18,7 @@ exports.getImageGroups = catchAsync(async (req, res) => {
  * 获取单个网页分组的全部图片（详情视图）
  */
 exports.getImageGroupDetail = catchAsync(async (req, res) => {
-  const group = await browseService.getImageGroupDetail(req.params.postId);
+  const group = await browseService.getImageGroupDetail(req.params.postId, req.user);
   sendSuccess(res, { data: group });
 });
 
@@ -26,7 +26,7 @@ exports.getImageGroupDetail = catchAsync(async (req, res) => {
  * 获取小说列表
  */
 exports.getNovels = catchAsync(async (req, res) => {
-  const { items, pagination } = await browseService.listNovels(req.query);
+  const { items, pagination } = await browseService.listNovels(req.query, req.user);
   sendSuccess(res, { data: items, pagination });
 });
 
@@ -34,7 +34,7 @@ exports.getNovels = catchAsync(async (req, res) => {
  * 搜索和筛选小说
  */
 exports.searchNovels = catchAsync(async (req, res) => {
-  const { items, pagination } = await browseService.searchNovels(req.body);
+  const { items, pagination } = await browseService.searchNovels(req.body, req.user);
   sendSuccess(res, { data: items, pagination });
 });
 
@@ -42,7 +42,7 @@ exports.searchNovels = catchAsync(async (req, res) => {
  * 获取单个小说的详细内容
  */
 exports.getNovelContent = catchAsync(async (req, res) => {
-  const novel = await browseService.getNovelContent(req.params.id);
+  const novel = await browseService.getNovelContent(req.params.id, req.user);
   sendSuccess(res, { data: novel });
 });
 
@@ -77,7 +77,8 @@ exports.addToCollection = catchAsync(async (req, res) => {
   const { collection, message } = await browseService.addToCollection(
     req.user.userId,
     req.params.id,
-    req.body.postId
+    req.body.postId,
+    req.user
   );
   sendSuccess(res, { data: collection, message });
 });
@@ -122,7 +123,7 @@ exports.clearCache = catchAsync(async (req, res) => {
  * 获取数据库统计信息
  */
 exports.getStats = catchAsync(async (req, res) => {
-  const stats = await browseService.getStats();
+  const stats = await browseService.getStats(req.user);
   sendSuccess(res, { data: stats });
 });
 
@@ -130,7 +131,7 @@ exports.getStats = catchAsync(async (req, res) => {
  * 删除小说（整个 Post）
  */
 exports.deleteNovel = catchAsync(async (req, res) => {
-  const { post, message } = await browseService.deleteNovel(req.params.id);
+  const { post, message } = await browseService.deleteNovel(req.params.id, req.user);
   sendSuccess(res, { data: post, message });
 });
 
@@ -138,7 +139,7 @@ exports.deleteNovel = catchAsync(async (req, res) => {
  * 删除图片（从 Post 中移除单个图片）
  */
 exports.deleteImage = catchAsync(async (req, res) => {
-  const { post, message } = await browseService.deleteImage(req.params.id, req.body.imageUrl);
+  const { post, message } = await browseService.deleteImage(req.params.id, req.body.imageUrl, req.user);
   sendSuccess(res, { data: post, message });
 });
 
@@ -146,6 +147,6 @@ exports.deleteImage = catchAsync(async (req, res) => {
  * 批量删除图片
  */
 exports.deleteImages = catchAsync(async (req, res) => {
-  const { post, message } = await browseService.deleteImages(req.params.id, req.body.imageUrls);
+  const { post, message } = await browseService.deleteImages(req.params.id, req.body.imageUrls, req.user);
   sendSuccess(res, { data: post, message });
 });

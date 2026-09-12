@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Row,
   Col,
@@ -34,6 +34,20 @@ const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
 const DEFAULT_FILTERS = { taskId: '', keyword: '', dateRange: null };
+// 详情瀑布流增量渲染页大小（v2.12.0：首次 60 张，「加载更多」每次 +60）
+const DETAIL_PAGE_SIZE = 60;
+// 裂图占位（v2.10.9）：内联 SVG 数据 URI，单图失效时显示「图片加载失败」而非浏览器裂图图标
+const IMAGE_FALLBACK = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
+  <svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+    <rect width="320" height="200" fill="#f5f5f5"/>
+    <g fill="none" stroke="#bfbfbf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="110" y="62" width="100" height="76" rx="6"/>
+      <circle cx="138" cy="90" r="7" fill="#bfbfbf" stroke="none"/>
+      <path d="M118 130l30-28 22 20 18-14 24 22"/>
+    </g>
+    <text x="160" y="168" font-size="15" fill="#8c8c8c" text-anchor="middle" font-family="sans-serif">图片加载失败</text>
+  </svg>
+`)}`;
 
 const ImageBrowser = ({ filtersVisible = true }) => {
   const [imageGroups, setImageGroups] = useState([]);
@@ -48,7 +62,6 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   // 草稿仅在点击「搜索」/回车后提交，避免逐键请求与多入口状态漂移
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
-  const [favorites, setFavorites] = useState(new Set());
   const [selectedGroup, setSelectedGroup] = useState(null);
   // 详情数据按需加载：列表仅返回 4 张预览，进入详情后拉全量并增量渲染
   const [detailLoading, setDetailLoading] = useState(false);
@@ -419,6 +432,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                           src={image.url}
                           alt={`预览 ${index + 1}`}
                           preview={false}
+                          fallback={IMAGE_FALLBACK}
                           className='preview-image'
                         />
                       </div>
@@ -518,6 +532,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                         src={image.url}
                         alt={`图片 ${index + 1}`}
                         preview={false}
+                        fallback={IMAGE_FALLBACK}
                         loading='lazy'
                         style={{
                           width: '100%',
@@ -574,7 +589,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
 
       {/* 图片预览 modal */}
       <Modal
-        visible={!!previewImage}
+        open={!!previewImage}
         footer={null}
         onCancel={() => {
           setPreviewImage(null);
@@ -582,12 +597,14 @@ const ImageBrowser = ({ filtersVisible = true }) => {
         }}
         width='90%'
         centered
-        bodyStyle={{
-          padding: 0,
-          background: '#000',
-          display: 'flex',
-          flexDirection: 'column',
-          maxHeight: '90vh'
+        styles={{
+          body: {
+            padding: 0,
+            background: '#000',
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: '90vh'
+          }
         }}
         style={{ top: 20 }}
       >
@@ -693,6 +710,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
           background: '#ffffff'
         }}>
           <img
+            key={previewImage}
             src={previewImage}
             alt='预览'
             style={{
@@ -706,6 +724,13 @@ const ImageBrowser = ({ filtersVisible = true }) => {
               cursor: fullViewMode ? 'default' : 'pointer',
               margin: '0 auto'
             }}
+            onError={(e) => {
+              // 加载失败时替换为统一占位图；data URI 不会再次失败，标记位仅作保险避免循环
+              if (!e.currentTarget.dataset.fallbackApplied) {
+                e.currentTarget.dataset.fallbackApplied = '1';
+                e.currentTarget.src = IMAGE_FALLBACK;
+              }
+            }}
             onClick={() => !fullViewMode && setFullViewMode(true)}
           />
         </div>
@@ -713,7 +738,5 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     </div>
   );
 };
-
-export default ImageBrowser;
 
 export default ImageBrowser;

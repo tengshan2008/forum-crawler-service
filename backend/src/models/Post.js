@@ -92,6 +92,8 @@ postSchema.index({ createdAt: -1 });
 // 复合索引：优化小说列表和搜索查询
 postSchema.index({ postType: 1, createdAt: -1 }); // 小说列表按时间排序
 postSchema.index({ postType: 1, taskId: 1, createdAt: -1 }); // 按任务筛选小说
+postSchema.index({ userId: 1, postType: 1, createdAt: -1 }); // 按用户可见范围筛选/计数
+postSchema.index({ visibility: 1, postType: 1, createdAt: -1 }); // 可见性 $or 的 public 分支（v2.13.0）
 postSchema.index({ title: 1 }); // 标题精确/前缀匹配
 postSchema.index({ author: 1 }); // 作者精确/前缀匹配
 

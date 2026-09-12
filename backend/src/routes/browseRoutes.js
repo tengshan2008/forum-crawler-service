@@ -1,7 +1,11 @@
 const express = require('express');
 const browseController = require('../controllers/browseController');
+const authMiddleware = require('../middlewares/authMiddleware');
 
 const router = express.Router();
+
+// 应用认证中间件：browse 全域需登录，数据按用户隔离（本人或 public，admin 全量）
+router.use(authMiddleware.authMiddleware);
 
 // ============ 图片浏览路由 ============
 

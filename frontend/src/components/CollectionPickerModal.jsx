@@ -6,6 +6,13 @@ import { browseApi } from '../services/api';
 const { Text } = Typography;
 
 /**
+ * 重名预检（纯函数，可直测）：在已加载的本人收藏夹里精确匹配名称。
+ * 与后端复合唯一索引 {userId, name} 同语义（大小写敏感）；后端仍是最终裁决。
+ */
+export const findDuplicateCollectionName = (collections, name) =>
+  (collections || []).find((c) => c.name === name) || null;
+
+/**
  * 收藏到收藏夹弹窗（图片/小说浏览共用）
  * 后端收藏粒度为整个 Post（网页/组）：勾选即调后端增删，支持「新建并收藏」。
  * 收藏夹列表由父组件加载并经 props 传入，操作成功后通过 onChanged 触发父组件刷新。
@@ -32,7 +39,7 @@ const CollectionPickerModal = ({ open, post, collections = [], onClose, onChange
       message.success(res.data?.message || (checked ? '已收藏' : '已取消收藏'));
       if (onChanged) await onChanged();
     } catch (error) {
-      message.error(checked ? '收藏失败' : '取消收藏失败');
+      message.error(error.response?.data?.message || (checked ? '收藏失败' : '取消收藏失败'));
     } finally {
       setPendingId(null);
     }
@@ -42,6 +49,10 @@ const CollectionPickerModal = ({ open, post, collections = [], onClose, onChange
     const name = newName.trim();
     if (!name) {
       message.warning('请输入收藏夹名称');
+      return;
+    }
+    if (findDuplicateCollectionName(collections, name)) {
+      message.error('同名收藏夹已存在');
       return;
     }
     setCreating(true);
@@ -57,7 +68,8 @@ const CollectionPickerModal = ({ open, post, collections = [], onClose, onChange
       setNewName('');
       if (onChanged) await onChanged();
     } catch (error) {
-      message.error('创建收藏夹失败');
+      // 后端 409「同名收藏夹已存在」等精确文案透出
+      message.error(error.response?.data?.message || '创建收藏夹失败');
     } finally {
       setCreating(false);
     }

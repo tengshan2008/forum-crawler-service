@@ -161,4 +161,5 @@ curl -X DELETE "http://localhost:5000/api/browse/posts/6982096b82196d016f02e0ee/
 2. 添加恢复已删除内容的功能（基于软删除）
 3. 添加删除历史日志
 4. 批量删除操作的前端 UI
-5. 权限控制（只允许内容所有者或管理员删除）
+
+> 注：第 5 项（权限控制）已于 v2.13.0 实现——browse 域全域挂载 authMiddleware，删除端点按用户可见性过滤（普通用户仅本人或 `visibility: 'public'` 的帖子，admin 全量，他人帖子统一 404），详见 `docs/api.md`「内容数据按用户隔离（v2.13.0）」。
