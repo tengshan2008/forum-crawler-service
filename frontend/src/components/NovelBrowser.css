@@ -88,6 +88,13 @@
   text-overflow: ellipsis;
 }
 
+.novel-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
 .novel-actions {
   display: flex;
   gap: 8px;

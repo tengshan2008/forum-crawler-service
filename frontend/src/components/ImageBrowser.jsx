@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Row,
   Col,
@@ -16,6 +16,7 @@ import {
   Modal,
   Tooltip,
   Typography,
+  Tag,
 } from 'antd';
 import {
   DownloadOutlined,
@@ -26,17 +27,34 @@ import {
   DeleteOutlined,
   HeartOutlined,
   HeartFilled,
+  FileZipOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import Masonry from 'react-masonry-css';
 import dayjs from 'dayjs';
+import { useSearchParams } from 'react-router-dom';
 import { browseApi, taskApi } from '../services/api';
+import { createZipBlob } from '../utils/zip';
+import VisibilityTag from '../utils/postMeta';
 import CollectionPickerModal from './CollectionPickerModal';
+import PostEditModal from './PostEditModal';
 import './ImageBrowser.css';
 
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
 const DEFAULT_FILTERS = { taskId: '', keyword: '', dateRange: null };
+
+// 从 URL 恢复筛选草稿/已提交条件（刷新、分享链接、浏览器前进后退均生效）
+const readFiltersFromUrl = (sp) => {
+  const start = sp.get('start');
+  const end = sp.get('end');
+  return {
+    taskId: sp.get('task') || '',
+    keyword: sp.get('q') || '',
+    dateRange: start && end ? [dayjs(start), dayjs(end)] : null,
+  };
+};
 // 详情瀑布流增量渲染页大小（v2.12.0：首次 60 张，「加载更多」每次 +60）
 const DETAIL_PAGE_SIZE = 60;
 // 裂图占位（v2.10.9）：内联 SVG 数据 URI，单图失效时显示「图片加载失败」而非浏览器裂图图标
@@ -53,18 +71,21 @@ const IMAGE_FALLBACK = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
 `)}`;
 
 const ImageBrowser = ({ filtersVisible = true }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [imageGroups, setImageGroups] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
-    current: 1,
+    current: Number(searchParams.get('page')) || 1,
     pageSize: 12,
     total: 0,
   });
   // filters 为输入草稿，appliedFilters 为已提交条件（请求参数的唯一事实来源）；
-  // 草稿仅在点击「搜索」/回车后提交，避免逐键请求与多入口状态漂移
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
+  // 两者初值都从 URL 恢复，草稿仅在点击「搜索」/回车后提交，避免逐键请求与多入口状态漂移
+  const [filters, setFilters] = useState(() => readFiltersFromUrl(searchParams));
+  const [appliedFilters, setAppliedFilters] = useState(() => readFiltersFromUrl(searchParams));
+  // 挂载首刷使用 URL 页码；此后筛选变化统一回到第 1 页
+  const initialPageRef = useRef(Number(searchParams.get('page')) || 1);
   const [selectedGroup, setSelectedGroup] = useState(null);
   // 详情数据按需加载：列表仅返回 4 张预览，进入详情后拉全量并增量渲染
   const [detailLoading, setDetailLoading] = useState(false);
@@ -75,6 +96,9 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   // 收藏夹数据与「收藏」弹窗目标分组（收藏粒度为整个 Post/图片组）
   const [collections, setCollections] = useState([]);
   const [pickerGroup, setPickerGroup] = useState(null);
+  // 打包下载进度（null=未开始）；编辑信息弹窗目标分组
+  const [zipProgress, setZipProgress] = useState(null);
+  const [editingGroup, setEditingGroup] = useState(null);
 
   // 获取任务列表（任务筛选项，误用小说接口会导致下拉空白：返回项没有 name 字段）
   useEffect(() => {
@@ -144,10 +168,29 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     }
   }, [pagination.pageSize, buildQueryParams]);
 
-  // 首次加载及已应用筛选变化时回到第 1 页拉取（翻页由 handlePaginationChange 单独触发）
+  // 首次加载及已应用筛选变化时回到第 1 页拉取（翻页由 handlePaginationChange 单独触发）；
+  // 挂载时若 URL 带 page，则首刷落在该页
   useEffect(() => {
-    fetchImageGroups(1);
+    const page = initialPageRef.current;
+    initialPageRef.current = 1;
+    fetchImageGroups(page);
   }, [fetchImageGroups]);
+
+  // 已提交筛选/页码 → URL（replace，不产生历史垃圾；参数可分享、可刷新恢复）
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('tab', 'images');
+    const keyword = (appliedFilters.keyword || '').trim();
+    if (keyword) params.set('q', keyword);
+    if (appliedFilters.taskId) params.set('task', appliedFilters.taskId);
+    if (appliedFilters.dateRange && appliedFilters.dateRange.length === 2) {
+      params.set('start', appliedFilters.dateRange[0].format('YYYY-MM-DD'));
+      params.set('end', appliedFilters.dateRange[1].format('YYYY-MM-DD'));
+    }
+    if (pagination.current > 1) params.set('page', String(pagination.current));
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedFilters, pagination.current]);
 
   const handlePaginationChange = (page) => {
     fetchImageGroups(page, pagination.pageSize);
@@ -232,6 +275,77 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  // 图片组一键打包下载：并发拉取（并发池 5，避免一次性打爆静态服务）→ 零依赖 STORE zip → a[download]
+  const handleDownloadZip = async (group) => {
+    const images = group.allImages || [];
+    if (!images.length) {
+      message.warning('该分组暂无可下载的图片');
+      return;
+    }
+    setZipProgress({ done: 0, failed: 0, total: images.length });
+    const files = new Array(images.length);
+    let cursor = 0;
+    let done = 0;
+    let failed = 0;
+
+    const worker = async () => {
+      while (cursor < images.length) {
+        const index = cursor;
+        cursor += 1;
+        const image = images[index];
+        try {
+          const res = await fetch(image.url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          files[index] = {
+            name: (image.url || '').split('/').pop() || `image_${index + 1}.jpg`,
+            data: new Uint8Array(await res.arrayBuffer()),
+          };
+        } catch {
+          failed += 1;
+          // 失败图片占位为 null，最后统一剔除（保留序号不影响其余文件）
+          files[index] = null;
+        }
+        done += 1;
+        setZipProgress({ done, failed, total: images.length });
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, images.length) }, worker));
+
+    const validFiles = files.filter(Boolean);
+    if (!validFiles.length) {
+      setZipProgress(null);
+      message.error('所有图片均下载失败，请稍后重试');
+      return;
+    }
+    try {
+      const blob = await createZipBlob(validFiles);
+      const safeTitle = (group.title || 'image-group').replace(/[\\/:*?"<>|]+/g, '_');
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${safeTitle}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      message.success(
+        `已打包下载 ${validFiles.length} 张图片${failed > 0 ? `（${failed} 张失败已跳过）` : ''}`
+      );
+    } catch (error) {
+      console.error('打包下载失败:', error);
+      message.error('打包下载失败');
+    } finally {
+      setZipProgress(null);
+    }
+  };
+
+  // PostEditModal 保存成功后同步列表与详情中的标题/标签/可见性
+  const handlePostSaved = (updated) => {
+    setImageGroups((prev) => prev.map((g) => (g._id === updated._id ? { ...g, ...updated } : g)));
+    setSelectedGroup((prev) => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
+    setEditingGroup(null);
   };
 
   const handleShare = (imageUrl) => {
@@ -448,6 +562,19 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                         {dayjs(group.createdAt).format('YYYY-MM-DD')}
                       </Text>
                     </div>
+                    {(group.tags || []).length > 0 ||
+                    (group.visibility && group.visibility !== 'private') ? (
+                      <div className='group-badges'>
+                        {group.visibility && group.visibility !== 'private' && (
+                          <VisibilityTag visibility={group.visibility} />
+                        )}
+                        {(group.tags || []).slice(0, 3).map((tag) => (
+                          <Tag key={tag} style={{ marginInlineEnd: 0 }}>
+                            {tag}
+                          </Tag>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
 
                   <div className='preview-images'>
@@ -482,6 +609,15 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                       >
                         查看全部 ({group.totalImages} 张)
                       </Button>
+                      <Tooltip title='编辑标题/可见性/标签'>
+                        <Button
+                          icon={<EditOutlined />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingGroup(group);
+                          }}
+                        />
+                      </Tooltip>
                       <Tooltip title={favoritedGroupIds.has(String(group._id)) ? '已收藏，点击管理' : '收藏'}>
                         <Button
                           icon={
@@ -530,22 +666,52 @@ const ImageBrowser = ({ filtersVisible = true }) => {
       {/* 瀑布流图片展示 */}
       {selectedGroup && (
         <div className='masonry-container'>
-          <div className='selected-group-header' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
-            <div style={{ flex: 1 }}>
-              <Title level={4}>{selectedGroup.title}</Title>
+          <div className='selected-group-header' style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: '240px' }}>
+              <Title level={4} style={{ marginBottom: 4 }}>{selectedGroup.title}</Title>
               <Text type='secondary'>
                 作者: {selectedGroup.author || '未知'} |
                 共 {selectedGroup.totalImages} 张图片 |
                 {dayjs(selectedGroup.createdAt).format('YYYY-MM-DD HH:mm')}
               </Text>
+              {((selectedGroup.tags || []).length > 0 ||
+                (selectedGroup.visibility && selectedGroup.visibility !== 'private')) && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {selectedGroup.visibility && selectedGroup.visibility !== 'private' && (
+                    <VisibilityTag visibility={selectedGroup.visibility} />
+                  )}
+                  {(selectedGroup.tags || []).map((tag) => (
+                    <Tag key={tag}>{tag}</Tag>
+                  ))}
+                </div>
+              )}
             </div>
-            <Button
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeletePost(selectedGroup._id, selectedGroup.title)}
-            >
-              删除整个网页
-            </Button>
+            <Space wrap>
+              <Button
+                type='primary'
+                icon={<FileZipOutlined />}
+                loading={!!zipProgress}
+                disabled={detailLoading || !selectedGroup.allImages?.length}
+                onClick={() => handleDownloadZip(selectedGroup)}
+              >
+                {zipProgress
+                  ? `打包中 ${zipProgress.done}/${zipProgress.total}${zipProgress.failed ? ` · 失败${zipProgress.failed}` : ''}`
+                  : '打包下载'}
+              </Button>
+              <Button
+                icon={<EditOutlined />}
+                onClick={() => setEditingGroup(selectedGroup)}
+              >
+                编辑信息
+              </Button>
+              <Button
+                danger
+                icon={<DeleteOutlined />}
+                onClick={() => handleDeletePost(selectedGroup._id, selectedGroup.title)}
+              >
+                删除整个网页
+              </Button>
+            </Space>
           </div>
 
           {detailLoading && selectedGroup.allImages.length === 0 ? (
@@ -783,6 +949,14 @@ const ImageBrowser = ({ filtersVisible = true }) => {
         collections={collections}
         onClose={() => setPickerGroup(null)}
         onChanged={fetchCollections}
+      />
+
+      {/* 编辑标题/可见性/标签（PUT /api/posts/:id，仅资源所有者可改） */}
+      <PostEditModal
+        open={!!editingGroup}
+        post={editingGroup}
+        onClose={() => setEditingGroup(null)}
+        onSaved={handlePostSaved}
       />
     </div>
   );

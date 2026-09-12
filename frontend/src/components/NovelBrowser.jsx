@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Row,
   Col,
@@ -14,6 +14,7 @@ import {
   Empty,
   Tooltip,
   Drawer,
+  Tag,
 } from 'antd';
 import {
   DownloadOutlined,
@@ -22,42 +23,64 @@ import {
   HeartFilled,
   BookOutlined,
   DeleteOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { Modal } from 'antd';
 import dayjs from 'dayjs';
+import { useSearchParams } from 'react-router-dom';
 import { browseApi, taskApi } from '../services/api';
 import NovelReader from './NovelReader';
 import CollectionPickerModal from './CollectionPickerModal';
+import PostEditModal from './PostEditModal';
+import VisibilityTag from '../utils/postMeta';
 import './NovelBrowser.css';
 
 const { RangePicker } = DatePicker;
 
+const DEFAULT_FILTERS = {
+  taskId: '',
+  keyword: '',
+  dateRange: null,
+  minWords: '',
+  maxWords: '',
+};
+
+// 从 URL 恢复筛选草稿/已提交条件（刷新、分享链接、浏览器前进后退均生效）
+const readNovelFiltersFromUrl = (sp) => {
+  const start = sp.get('start');
+  const end = sp.get('end');
+  return {
+    taskId: sp.get('task') || '',
+    keyword: sp.get('q') || '',
+    dateRange: start && end ? [dayjs(start), dayjs(end)] : null,
+    minWords: sp.get('min') || '',
+    maxWords: sp.get('max') || '',
+  };
+};
+
 const NovelBrowser = ({ filtersVisible = true }) => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [novels, setNovels] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({
-    current: 1,
+    current: Number(searchParams.get('page')) || 1,
     pageSize: 12,
     total: 0,
   });
-  const DEFAULT_FILTERS = {
-    taskId: '',
-    keyword: '',
-    dateRange: null,
-    minWords: '',
-    maxWords: '',
-  };
   // filters 为输入草稿，appliedFilters 为已提交条件（请求参数的唯一事实来源）；
-  // 草稿仅在点击「搜索」后提交，与 ImageBrowser 同构，避免逐键请求与多入口状态漂移
-  const [filters, setFilters] = useState(DEFAULT_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
+  // 两者初值都从 URL 恢复，草稿仅在点击「搜索」后提交，与 ImageBrowser 同构，避免逐键请求与多入口状态漂移
+  const [filters, setFilters] = useState(() => readNovelFiltersFromUrl(searchParams));
+  const [appliedFilters, setAppliedFilters] = useState(() => readNovelFiltersFromUrl(searchParams));
+  // 挂载首刷使用 URL 页码；此后筛选/页大小变化统一回到第 1 页
+  const initialPageRef = useRef(Number(searchParams.get('page')) || 1);
   // 收藏夹数据与「收藏」弹窗目标内容（Post 级收藏）
   const [collections, setCollections] = useState([]);
   const [pickerNovel, setPickerNovel] = useState(null);
   const [readerDrawerVisible, setReaderDrawerVisible] = useState(false);
   const [selectedNovel, setSelectedNovel] = useState(null);
   const [readerLoading, setReaderLoading] = useState(false);
+  const [editingNovel, setEditingNovel] = useState(null);
 
   // 获取任务列表（任务筛选项，误用小说接口会导致下拉空白：返回项没有 name 字段）
   useEffect(() => {
@@ -112,10 +135,30 @@ const NovelBrowser = ({ filtersVisible = true }) => {
     [pagination.pageSize, buildSearchParams]
   );
 
-  // 首次加载及已应用筛选变化时回到第 1 页拉取（翻页由 handlePaginationChange 单独触发）
+  // 首次加载及已应用筛选变化时拉取（挂载时若 URL 带 page 则落在该页；翻页单独触发）
   useEffect(() => {
-    fetchNovels(1);
+    const page = initialPageRef.current;
+    initialPageRef.current = 1;
+    fetchNovels(page);
   }, [fetchNovels]);
+
+  // 已提交筛选/页码 → URL（replace；参数可分享、可刷新恢复）
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('tab', 'novels');
+    const keyword = (appliedFilters.keyword || '').trim();
+    if (keyword) params.set('q', keyword);
+    if (appliedFilters.taskId) params.set('task', appliedFilters.taskId);
+    if (appliedFilters.dateRange && appliedFilters.dateRange.length === 2) {
+      params.set('start', appliedFilters.dateRange[0].format('YYYY-MM-DD'));
+      params.set('end', appliedFilters.dateRange[1].format('YYYY-MM-DD'));
+    }
+    if (appliedFilters.minWords) params.set('min', appliedFilters.minWords);
+    if (appliedFilters.maxWords) params.set('max', appliedFilters.maxWords);
+    if (pagination.current > 1) params.set('page', String(pagination.current));
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedFilters, pagination.current]);
 
   // 提交草稿筛选条件；实际请求由 appliedFilters 变化触发的 effect 统一发出
   const handleSearch = () => {
@@ -128,7 +171,7 @@ const NovelBrowser = ({ filtersVisible = true }) => {
   };
 
   const handlePageSizeChange = (value) => {
-    // 仅更新状态：pageSize 变化会重建 fetchNovels 并由 effect 以第 1 页重新拉取
+    // pageSize 变化会重建 fetchNovels 并由 effect 以第 1 页重新拉取；URL 中 page 由同步 effect 清除
     setPagination((prev) => ({ ...prev, current: 1, pageSize: value }));
   };
 
@@ -246,6 +289,13 @@ const NovelBrowser = ({ filtersVisible = true }) => {
         }
       },
     });
+  };
+
+  // PostEditModal 保存成功后同步列表/阅读器中的标题、标签与可见性
+  const handleNovelSaved = (updated) => {
+    setNovels((prev) => prev.map((n) => (n._id === updated._id ? { ...n, ...updated } : n)));
+    setSelectedNovel((prev) => (prev && prev._id === updated._id ? { ...prev, ...updated } : prev));
+    setEditingNovel(null);
   };
 
   if (loading && novels.length === 0) {
@@ -385,6 +435,19 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                           <p className='novel-excerpt'>
                             {novel.excerpt || '暂无摘要'}
                           </p>
+                          {((novel.tags || []).length > 0 ||
+                            (novel.visibility && novel.visibility !== 'private')) && (
+                            <div className='novel-badges'>
+                              {novel.visibility && novel.visibility !== 'private' && (
+                                <VisibilityTag visibility={novel.visibility} />
+                              )}
+                              {(novel.tags || []).slice(0, 4).map((tag) => (
+                                <Tag key={tag} style={{ marginInlineEnd: 0 }}>
+                                  {tag}
+                                </Tag>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       }
                     />
@@ -435,6 +498,14 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                             size='small'
                             icon={<ShareAltOutlined />}
                             onClick={() => handleShare(novel)}
+                          />
+                        </Tooltip>
+                        <Tooltip title='编辑标题/可见性/标签'>
+                          <Button
+                            type='text'
+                            size='small'
+                            icon={<EditOutlined />}
+                            onClick={() => setEditingNovel(novel)}
                           />
                         </Tooltip>
                         <Tooltip title='删除'>
@@ -509,7 +580,8 @@ const NovelBrowser = ({ filtersVisible = true }) => {
             <Spin size='large' tip='正在加载小说内容...' />
           </div>
         ) : selectedNovel ? (
-          <NovelReader novel={selectedNovel} />
+          // key 绑定小说 id：切换读物时整体重挂，阅读器进度按 id 独立恢复
+          <NovelReader key={selectedNovel._id} novel={selectedNovel} />
         ) : null}
       </Drawer>
       <CollectionPickerModal
@@ -518,6 +590,12 @@ const NovelBrowser = ({ filtersVisible = true }) => {
         collections={collections}
         onClose={() => setPickerNovel(null)}
         onChanged={fetchCollections}
+      />
+      <PostEditModal
+        open={!!editingNovel}
+        post={editingNovel}
+        onClose={() => setEditingNovel(null)}
+        onSaved={handleNovelSaved}
       />
     </div>
   );

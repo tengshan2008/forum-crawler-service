@@ -16,16 +16,26 @@ import {
   CopyOutlined,
   ArrowLeftOutlined,
   ArrowRightOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
+import { loadProgress, saveProgress, clearProgress } from '../utils/readerProgress';
 import './NovelReader.css';
 
 const NovelReader = ({ novel }) => {
-  const [fontSize, setFontSize] = useState(16);
-  const [theme, setTheme] = useState('light'); // light or dark
-  const [lineHeight, setLineHeight] = useState(1.6);
-  const [currentPage, setCurrentPage] = useState(1);
+  // 挂载时从 localStorage 恢复阅读进度与阅读设置（按小说 id 隔离）
+  const saved = useMemo(() => loadProgress(novel._id), [novel._id]);
+  const restoredRef = useRef(Boolean(saved && saved.page > 1));
+  const [fontSize, setFontSize] = useState(saved?.fontSize || 16);
+  const [theme, setTheme] = useState(saved?.theme || 'light'); // light or dark
+  const [lineHeight, setLineHeight] = useState(saved?.lineHeight || 1.6);
+  const [currentPage, setCurrentPage] = useState(saved?.page || 1);
   const [wordsPerPage] = useState(3000); // 每页3000字
   const contentRef = useRef(null);
+
+  // 阅读进度/设置变化即写入（localStorage 写入廉价，无需防抖）
+  useEffect(() => {
+    saveProgress(novel._id, { page: currentPage, fontSize, lineHeight, theme });
+  }, [novel._id, currentPage, fontSize, lineHeight, theme]);
 
   // 页码改变时滚动到顶部
   useEffect(() => {
@@ -33,6 +43,30 @@ const NovelReader = ({ novel }) => {
       contentRef.current.scrollTop = 0;
     }
   }, [currentPage]);
+
+  // 键盘左右方向键翻页（焦点在字号滑杆等表单控件上时不拦截，避免冲突）
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentPage((p) => Math.max(1, p - 1));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentPage((p) => Math.min(paginatedContent.totalPages, p + 1));
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [paginatedContent.totalPages]);
+
+  const handleResetProgress = () => {
+    clearProgress(novel._id);
+    restoredRef.current = false;
+    setCurrentPage(1);
+    message.success('已清除续读记录');
+  };
 
   const handleDownloadTxt = () => {
     const element = document.createElement('a');
@@ -55,10 +89,10 @@ const NovelReader = ({ novel }) => {
     message.success('内容已复制到剪贴板');
   };
 
-  // 计算分页数据
+  // 计算分页数据（空内容至少 1 页，避免页码为 0）
   const paginatedContent = useMemo(() => {
     const content = novel.content || '';
-    const totalPages = Math.ceil(content.length / wordsPerPage);
+    const totalPages = Math.max(1, Math.ceil(content.length / wordsPerPage));
     const startIndex = (currentPage - 1) * wordsPerPage;
     const endIndex = Math.min(startIndex + wordsPerPage, content.length);
 
@@ -69,6 +103,13 @@ const NovelReader = ({ novel }) => {
       currentText: content.substring(startIndex, endIndex),
     };
   }, [novel.content, wordsPerPage, currentPage]);
+
+  // 恢复的页码若超出本书总页数（内容变更/旧记录），收敛到末页
+  useEffect(() => {
+    if (currentPage > paginatedContent.totalPages) {
+      setCurrentPage(paginatedContent.totalPages);
+    }
+  }, [currentPage, paginatedContent.totalPages]);
 
   const themeStyles = {
     light: {
@@ -139,12 +180,26 @@ const NovelReader = ({ novel }) => {
           </Tooltip>
         </Space>
 
-        <Statistic
-          title='页码'
-          value={currentPage}
-          suffix={`/ ${paginatedContent.totalPages}`}
-          style={{ fontSize: '12px' }}
-        />
+        <div className='reader-page-indicator'>
+          <Statistic
+            title='页码'
+            value={currentPage}
+            suffix={`/ ${paginatedContent.totalPages}`}
+            style={{ fontSize: '12px' }}
+          />
+          {restoredRef.current && currentPage > 1 && (
+            <Tooltip title='清除本机续读记录并回到第 1 页'>
+              <Button
+                type='text'
+                size='small'
+                icon={<HistoryOutlined />}
+                onClick={handleResetProgress}
+              >
+                续读第 {currentPage} 页 · 清除
+              </Button>
+            </Tooltip>
+          )}
+        </div>
       </div>
 
       {/* 内容区域 */}

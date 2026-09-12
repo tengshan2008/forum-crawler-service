@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Tabs, Card, Space, Button } from 'antd';
 import {
   PictureOutlined,
@@ -6,14 +6,22 @@ import {
   FilterOutlined,
   FilterFilled,
 } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import ImageBrowser from '../components/ImageBrowser';
 import NovelBrowser from '../components/NovelBrowser';
 import './BrowsePage.css';
 
 const BrowsePage = () => {
-  const [activeTab, setActiveTab] = useState('images');
+  // tab 写入 URL：/browse?tab=images|novels，刷新/分享后停留在原 Tab
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = searchParams.get('tab') === 'novels' ? 'novels' : 'images';
   // 筛选栏可见性是页面级单一语义，props 下发给两个 Tab 的浏览组件
   const [filtersVisible, setFiltersVisible] = useState(true);
+
+  const handleTabChange = (key) => {
+    // 切 Tab 时清空上一个 Tab 的筛选参数（两个浏览器复用同名参数）
+    setSearchParams({ tab: key });
+  };
 
   const tabItems = [
     {
@@ -49,10 +57,13 @@ const BrowsePage = () => {
       >
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           items={tabItems}
           size='large'
           tabBarGutter={32}
+          // 非活动 Tab 直接卸载：其筛选/页码已持久化到 URL，重新挂载时从 URL 恢复，
+          // 同时避免两个浏览器同时存活、互相重复请求
+          destroyOnHidden
           tabBarExtraContent={
             <Space>
               <Button

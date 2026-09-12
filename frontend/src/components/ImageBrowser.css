@@ -46,6 +46,13 @@
   font-size: 12px;
 }
 
+.group-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
 .preview-images {
   position: relative;
   display: grid;

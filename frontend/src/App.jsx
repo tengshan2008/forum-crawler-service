@@ -1,11 +1,12 @@
 import React from 'react';
 import { Layout, Menu, Button, ConfigProvider, Grid, Drawer, Tooltip, Result, theme as antdTheme } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, Outlet, useLocation } from 'react-router-dom';
-import { FileTextOutlined, PictureOutlined, SettingOutlined, LogoutOutlined, DashboardOutlined, TeamOutlined, MenuOutlined, BulbOutlined, BulbFilled } from '@ant-design/icons';
+import { FileTextOutlined, PictureOutlined, SettingOutlined, LogoutOutlined, DashboardOutlined, TeamOutlined, MenuOutlined, BulbOutlined, BulbFilled, StarOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
 import TaskList from './pages/TaskList';
 import PostPreview from './pages/PostPreview';
 import BrowsePage from './pages/BrowsePage';
+import CollectionsPage from './pages/CollectionsPage';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -43,6 +44,11 @@ function useMenuItems() {
       key: 'browse',
       icon: <PictureOutlined />,
       label: <Link to="/browse">内容浏览</Link>,
+    },
+    {
+      key: 'collections',
+      icon: <StarOutlined />,
+      label: <Link to="/collections">我的收藏</Link>,
     },
     // 只有admin角色才显示系统管理菜单
     ...(user?.role === 'admin' ? [{
@@ -100,6 +106,7 @@ function LayoutContent({ themeMode, onToggleTheme }) {
     const path = location.pathname;
     if (path === '/') return 'tasks';
     if (path === '/browse') return 'browse';
+    if (path === '/collections') return 'collections';
     if (path.startsWith('/admin')) return 'admin';
     if (path === '/settings') return 'settings';
     return 'tasks';
@@ -215,6 +222,7 @@ function App() {
             <Route element={<LayoutContent themeMode={mode} onToggleTheme={toggleMode} />}>
               <Route path="/" element={<TaskList />} />
               <Route path="/browse" element={<BrowsePage />} />
+              <Route path="/collections" element={<CollectionsPage />} />
               <Route path="/preview/:taskId" element={<PostPreview />} />
               <Route path="/settings" element={<Settings />} />
               {/* 系统管理路由 */}

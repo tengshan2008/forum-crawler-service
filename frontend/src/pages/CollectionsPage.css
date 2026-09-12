@@ -1,0 +1,85 @@
+.collections-page {
+  padding: 24px;
+}
+
+.collections-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.collections-list-card,
+.collection-detail-card {
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.collection-list-item {
+  padding-inline: 16px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.collection-list-item:hover {
+  background: var(--surface-subtle);
+}
+
+.collection-list-item.active {
+  background: var(--surface-subtle);
+  border-inline-start: 3px solid var(--ant-color-primary, #1890ff);
+}
+
+.collection-folder-icon {
+  font-size: 20px;
+  color: var(--ant-color-primary, #1890ff);
+}
+
+.collection-item-name {
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.collection-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.collection-entry {
+  border-radius: 8px;
+}
+
+.collection-entry-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-weight: 500;
+  color: var(--text-color);
+}
+
+.collection-entry-cover {
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+}
+
+.collection-entry-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  background: var(--surface-subtle);
+  color: var(--text-secondary);
+}
+
+@media (max-width: 768px) {
+  .collections-page {
+    padding: 12px;
+  }
+}

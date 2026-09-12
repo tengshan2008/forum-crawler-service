@@ -7,16 +7,21 @@ const ACTIVE_STATUSES = ['running', 'pending'];
 const POLL_INTERVAL = 5000;
 
 // F2：任务列表的数据获取与操作下沉到 hook，页面组件只保留渲染职责
-export function useTasks() {
+// initialFilters 来自 URL（筛选状态可分享/刷新保留）：{ keyword, status, crawlType, page, pageSize }
+export function useTasks(initialFilters = {}) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+  const [pagination, setPagination] = useState({
+    current: initialFilters.page || 1,
+    pageSize: initialFilters.pageSize || 10,
+    total: 0,
+  });
   // 表格排序状态（sortField/sortOrder 透传给后端 sort 参数）
   const [sort, setSort] = useState({ field: null, order: null });
-  const [crawlTypeFilter, setCrawlTypeFilter] = useState(null);
-  const [statusFilter, setStatusFilter] = useState(null);
+  const [crawlTypeFilter, setCrawlTypeFilter] = useState(initialFilters.crawlType ?? null);
+  const [statusFilter, setStatusFilter] = useState(initialFilters.status ?? null);
   // 任务名搜索词（仅在搜索/清空时提交，避免每次击键都请求）
-  const [keyword, setKeyword] = useState('');
+  const [keyword, setKeyword] = useState(initialFilters.keyword ?? '');
   // 统计概览（总数/运行中/失败/今日新增）
   const [stats, setStats] = useState({ total: 0, running: 0, failed: 0, todayCreated: 0 });
   // 批量选中的任务 ID

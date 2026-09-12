@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider, Grid, Pagination, Empty, Spin } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { taskApi } from '../services/api';
 import { useTasks } from '../hooks/useTasks';
 import dayjs from 'dayjs';
@@ -39,7 +39,32 @@ const TaskList = () => {
     statusFilter, setStatusFilter, keyword, setKeyword,
     stats, selectedIds, setSelectedIds, sort, setSort,
     fetchTasks, deleteTask, batchDelete, startTask, pauseTask, resumeTask, cancelTask, retryTask,
-  } = useTasks();
+  } = useTasks(
+    // 仅在挂载时从 URL 恢复筛选/页码（之后 URL 由下方 effect 单向同步）
+    (() => {
+      // 惰性读取一次 searchParams
+      const sp = new URLSearchParams(window.location.search);
+      return {
+        keyword: sp.get('q') || '',
+        status: sp.get('status') || null,
+        crawlType: sp.get('crawlType') || null,
+        page: Number(sp.get('page')) || 1,
+      };
+    })()
+  );
+  const [, setSearchParams] = useSearchParams();
+
+  // 筛选/页码 → URL（replace 不产生历史垃圾；URL 是可分享/可刷新的事实来源）
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (keyword) params.set('q', keyword);
+    if (statusFilter) params.set('status', statusFilter);
+    if (crawlTypeFilter) params.set('crawlType', crawlTypeFilter);
+    if (pagination.current > 1) params.set('page', String(pagination.current));
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword, statusFilter, crawlTypeFilter, pagination.current]);
+
   // md 以下（<768px）用卡片列表替代表格，避免 1200px 横向滚动表格在手机上不可用
   const screens = Grid.useBreakpoint();
   const isMobile = !screens.md;
