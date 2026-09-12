@@ -29,9 +29,10 @@ RUN npm install
 COPY backend/src ./src
 COPY backend/scripts ./scripts
 COPY crawler /app/crawler
-COPY public /app/public
 
-# Create public/images directory for downloads
+# Create public/images directory for downloaded images.
+# 仓库不保留 public/（内容全部运行时生成），直接建目录树；
+# /app/public/images 同时是 compose 命名卷 public_images 的挂载点。
 RUN mkdir -p /app/public/images/uploads && chmod -R 755 /app/public
 
 # Expose port

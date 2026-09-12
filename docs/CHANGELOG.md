@@ -1,5 +1,54 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.14.0 - 移动端响应式布局与全局暗色模式
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **背景**：第二批体验/视觉优化：此前 Sider 固定 200px 无断点逻辑，手机端永久挤占；全站无暗色模式；未知路由无兜底
+- **响应式布局**：
+  - `App.jsx` 引入 `Grid.useBreakpoint`：md（768px）以下侧栏收进深色 `Drawer`，顶栏左侧加汉堡按钮，导航后自动收起；桌面保持固定可折叠 Sider 与原有交互；菜单结构抽为 `useMenuItems` 两处共用
+  - `TaskList.jsx` md 以下渲染卡片列表替代表格（名称+状态 / 类型·采集方式·时间 / 进度条 / 爬取统计+操作），行内操作抽为 `renderTaskActions` 供表格列与卡片复用（开始/暂停/恢复/取消/重试/日志/编辑/预览/删除能力两处一致），移动端隐藏批量选择相关入口；分页器独立渲染
+  - Content/Header/BrowsePage 在 768px 下收窄 padding
+- **全局暗色模式**：
+  - 新增 `hooks/useThemeMode.js`：亮/暗两态，localStorage(`theme-mode`) 持久化，首次访问跟随系统 `prefers-color-scheme`；切换时同步 `<html data-theme>`
+  - `ConfigProvider` 从 index.jsx 内聚到 `App.jsx`，按 mode 切换 `theme.darkAlgorithm/defaultAlgorithm`；顶栏灯泡按钮一键切换（状态在顶层持有，Provider 与按钮共享）
+  - 建立 CSS 变量体系（index.css `:root`/`[data-theme='dark']`：--app-bg/--surface/--surface-subtle/--border-color/--text-color/--text-secondary/--header-bg），全量替换自定义 CSS 与关键内联样式的硬编码表面色：App.css（Content/Modal/滚动条，删除重复的 .task-list 白块与行 hover 亮色覆盖）、BrowsePage、ImageBrowser、NovelBrowser、Settings、AdminDashboard、AdminUserManagement、AdminConfigPanel、Login/Register、TaskList 跳过原因卡
+  - 保持不动：NovelReader 自带亮/暗双主题；图片预览/日志控制台按惯例保持深色
+- **404 兜底**：路由新增 `path="*"` 的 Result 404 页（登录态内外均可达）
+- **验证**：
+  - Vitest 25 例全绿；`vite build` 通过
+  - 浏览器冒烟（铸 JWT 注入 localStorage 绕过不可用的 Mongo）：暗色下 body/content/taskList/card/表头/Select/Input/Header 实测全部 rgb(20~38) 深色系无白底，Settings info-item/security-tips 与 404 页暗色正常；亮色切换完整回退；`data-theme` 与 `theme-mode` 随切换正确变化
+  - 首次冒烟曾报 body/表头/输入框白底，根因为 App.css 遗留 `.ant-layout-content{background:#f5f5f5}` 等全局硬编码覆盖 + vite HMR 半更新状态；修掉硬编码并全新标签硬刷新后复测全绿
+  - 已知限制：本环境 Electron 浏览器无法模拟 375px 移动视口，Drawer/卡片视图经代码审查（antd 标准 Grid 断点 API）+ 构建验证，待真机/DevTools 设备模式终验
+  - 遗留（下一批）：antd 静态 `message.xxx` 不消费动态主题，暗色下全局提示仍为白底（需迁 `App.useApp()`，调用点多，单独处理）；Input addonAfter deprecation warning
+- 文档：仅本 CHANGELOG，无 API 契约变更
+
+## 版本 2.13.2 - 生产热修：后端镜像不启动服务导致全站 502 Bad Gateway
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **现象**：生产环境经 nginx 访问全部返回 `502 Bad Gateway`（前端容器静态页可能正常，`/api`、`/public` 全挂）
+- **根因**：提交 `40d9d4a (update)` 将生产镜像 `docker/Dockerfile.backend` 的启动命令从 `CMD ["npm", "start"]` 误改为 `CMD ["sleep", "infinity"]`；生产 `docker-compose.yml` 不覆盖 `command`，容器虽 running 但 Node 从未启动、5000 端口无监听，前端 nginx `proxy_pass http://backend:5000` 连接被拒（容器 HEALTHCHECK 同时报 unhealthy）。dev 环境走独立的 `Dockerfile.backend.dev`（nodemon），故开发环境一直正常、长期掩盖该问题
+- **修复**：
+  1. `Dockerfile.backend` 恢复 `CMD ["npm", "start"]`（即 `node src/index.js`，监听 0.0.0.0:5000）
+  2. 顺带修复两个后端 Dockerfile 的失效指令 `COPY public /app/public`——仓库中 `public/` 目录早已移除（仅历史提交存在测试图片），纯净检出构建会在该步直接报 not found；目录树改由既有的 `RUN mkdir -p /app/public/images/uploads` 创建，与 compose 命名卷 `public_images` 挂载点一致
+- **生产恢复**：`git pull` 后执行 `docker compose -f docker/docker-compose.yml build backend && docker compose -f docker/docker-compose.yml up -d backend`，`curl http://localhost:5000/health` 返回 200 即恢复
+- **文档**：`docs/deployment.md` 故障排除新增「访问页面/API 返回 502 Bad Gateway」（按 nginx upstream 报错 refused/timeout 分流的取证命令与处置）
+
+## 版本 2.13.1 - 前端 P0 缺陷修复（恢复任务/鉴权/令牌刷新/筛选保持/图片收藏）
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **背景**：前端走查发现 5 个"后端能力已就绪、前端断链"的 P0 问题，本次一次性修复，均为纯前端改动，无 API 契约变更
+- **修复**：
+  1. **暂停任务无法恢复**：任务列表操作列此前只渲染 pending/running/failed 三种状态按钮，`paused` 状态无任何操作入口（`taskApi.resume` 与后端 `POST /tasks/:id/resume` 均为死代码）。`useTasks` 新增 `resumeTask` 并导出，操作列为 paused 补「恢复」按钮
+  2. **PostPreview 任务信息 401**：`PostPreview.jsx` 裸用 `fetch('/api/tasks/:id')` 不带 Authorization，而该端点挂了 authMiddleware，采集统计卡片永远取不到数据。改为走带 Bearer 拦截器的 `taskApi.getById`
+  3. **Access Token 过期即被强制登出**：后端 `/auth/refresh`（httpOnly cookie + 轮换）此前前端从不调用。`api.js` 响应拦截器改为：401 → 单飞 `/auth/refresh`（并发请求共享同一刷新 Promise）→ 新令牌落库并重放原请求；刷新失败或认证类端点（login/register/refresh/logout）401 才清存储并跳登录。axios 实例补 `withCredentials: true` 以携带 refresh cookie（与 authService 实例一致，CORS 白名单已允许凭证）
+  4. **小说搜索后翻页丢条件**：搜索走 `POST /browse/novels/search`（含关键词/日期/字数），翻页却走只带 taskId 的 `GET /browse/novels`，第 2 页起退回无筛选列表。对齐 ImageBrowser 的草稿/已提交分层（`filters`/`appliedFilters`），列表、搜索、翻页、换页大小、删除后刷新统一从 appliedFilters 构参走 search 端点（无关键词时后端等价列表查询）；搜索关键词框补回车提交与 allowClear
+  5. **图片组无法收藏**：收藏 API 与共用组件 `CollectionPickerModal` 已在 v2.11.0 落地（小说 Tab 已接入），图片 Tab 缺入口。图片组卡片操作区补心形按钮（已收藏实心粉色），收藏状态由 `GET /browse/collections` 的 items 并集推导，与小说 Tab 同口径
+- **验证**：Vitest 25 例全绿（新增「401 静默刷新成功并重放原请求」用例锁定刷新契约，原 401 用例改为覆盖刷新失败分支；测试 adapter 透传真实 config 以模拟 axios 拦截器标记判定）；`vite build` 通过
+- 文档：无 API 契约变化（`/auth/refresh`、`/tasks/:id/resume` 均已在 api.md 记录），仅本 CHANGELOG
+
 ## 版本 2.13.0 - 内容浏览数据按用户隔离
 **发布日期**: 2026-09-12
 **状态**: ✅ 已完成

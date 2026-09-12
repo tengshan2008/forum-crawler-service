@@ -1,3 +1,27 @@
+/* 设计变量（亮/暗双主题）：antd 组件经 ConfigProvider algorithm 自动切换，
+   自定义表面/文字/边框统一引用这些变量，暗色模式不残留白底 */
+:root {
+  --app-bg: #f5f5f5;
+  --surface: #ffffff;
+  --surface-subtle: #fafafa;
+  --border-color: #f0f0f0;
+  --text-color: rgba(0, 0, 0, 0.88);
+  --text-secondary: rgba(0, 0, 0, 0.55);
+  --header-bg: #ffffff;
+  --sider-bg: #001529;
+}
+
+[data-theme='dark'] {
+  --app-bg: #141414;
+  --surface: #1f1f1f;
+  --surface-subtle: #262626;
+  --border-color: #303030;
+  --text-color: rgba(255, 255, 255, 0.85);
+  --text-secondary: rgba(255, 255, 255, 0.45);
+  --header-bg: #1f1f1f;
+  --sider-bg: #001529;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -9,7 +33,9 @@ body {
     'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #f5f5f5;
+  background-color: var(--app-bg);
+  color: var(--text-color);
+  transition: background-color 0.2s ease;
 }
 
 #root {
@@ -17,9 +43,9 @@ body {
 }
 
 .task-list {
-  background-color: #fff;
+  background-color: var(--surface);
   padding: 24px;
-  border-radius: 2px;
+  border-radius: 8px;
 }
 
 .post-preview {

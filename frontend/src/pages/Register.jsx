@@ -24,7 +24,7 @@ const Register = () => {
   };
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#f0f2f5' }}>
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: 'var(--app-bg)' }}>
       <Card style={{ width: 400 }}>
         <Title level={2} style={{ textAlign: 'center', marginBottom: 24 }}>
           论坛爬虫服务

@@ -25,9 +25,10 @@ RUN npm install --production
 # Copy source code
 COPY backend/src ./src
 COPY crawler /app/crawler
-COPY public /app/public
 
-# Create public/images directory for downloads
+# Create public/images directory for downloaded images.
+# 不在仓库中保留 public/（内容全部运行时生成）：此处直接建目录树，
+# /app/public/images 同时是 compose 命名卷 public_images 的挂载点。
 RUN mkdir -p /app/public/images/uploads && chmod -R 755 /app/public
 
 # Expose port
@@ -37,6 +38,7 @@ EXPOSE 5000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://127.0.0.1:5000/health', (r) => {if (r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Start application
-CMD ["sleep", "infinity"]
+# Start application（生产镜像必须启动 Node 服务；
+# 曾被误改为 sleep infinity 导致 5000 无监听、nginx 全部 502）
+CMD ["npm", "start"]
 

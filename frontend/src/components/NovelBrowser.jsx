@@ -41,13 +41,17 @@ const NovelBrowser = ({ filtersVisible = true }) => {
     pageSize: 12,
     total: 0,
   });
-  const [filters, setFilters] = useState({
+  const DEFAULT_FILTERS = {
     taskId: '',
     keyword: '',
     dateRange: null,
     minWords: '',
     maxWords: '',
-  });
+  };
+  // filters 为输入草稿，appliedFilters 为已提交条件（请求参数的唯一事实来源）；
+  // 草稿仅在点击「搜索」后提交，与 ImageBrowser 同构，避免逐键请求与多入口状态漂移
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [appliedFilters, setAppliedFilters] = useState(DEFAULT_FILTERS);
   // 收藏夹数据与「收藏」弹窗目标内容（Post 级收藏）
   const [collections, setCollections] = useState([]);
   const [pickerNovel, setPickerNovel] = useState(null);
@@ -68,64 +72,64 @@ const NovelBrowser = ({ filtersVisible = true }) => {
     fetchTasks();
   }, []);
 
-  // 获取小说列表
-  const fetchNovels = useCallback(async (page = 1, pageSize = null) => {
-    const size = pageSize || pagination.pageSize;
-    setLoading(true);
-    try {
-      const res = await browseApi.getNovels({ page, limit: size, taskId: filters.taskId });
-      setNovels(res.data.data || []);
-      setPagination({
-        current: res.data.pagination.page,
-        pageSize: res.data.pagination.limit,
-        total: res.data.pagination.total,
-      });
-    } catch (error) {
-      message.error('获取小说列表失败');
-    } finally {
-      setLoading(false);
-    }
-  }, [pagination.pageSize, filters.taskId]);
-
-  // 搜索小说
-  const handleSearch = async () => {
-    setLoading(true);
-    try {
-      const searchData = { page: 1, limit: 20 };
-      if (filters.keyword) searchData.keyword = filters.keyword;
-      if (filters.taskId) searchData.taskId = filters.taskId;
-      if (filters.dateRange && filters.dateRange.length === 2) {
-        searchData.startDate = filters.dateRange[0].format('YYYY-MM-DD');
-        searchData.endDate = filters.dateRange[1].format('YYYY-MM-DD');
+  // 统一构参层：搜索、翻页、换页大小、删除后刷新都从 appliedFilters 派生同一套参数
+  const buildSearchParams = useCallback(
+    (page, size) => {
+      const params = { page, limit: size, taskId: appliedFilters.taskId || undefined };
+      const keyword = (appliedFilters.keyword || '').trim();
+      if (keyword) params.keyword = keyword;
+      if (appliedFilters.dateRange && appliedFilters.dateRange.length === 2) {
+        params.startDate = appliedFilters.dateRange[0].format('YYYY-MM-DD');
+        params.endDate = appliedFilters.dateRange[1].format('YYYY-MM-DD');
       }
-      if (filters.minWords) searchData.minWords = filters.minWords;
-      if (filters.maxWords) searchData.maxWords = filters.maxWords;
+      if (appliedFilters.minWords) params.minWords = appliedFilters.minWords;
+      if (appliedFilters.maxWords) params.maxWords = appliedFilters.maxWords;
+      return params;
+    },
+    [appliedFilters]
+  );
 
-      const res = await browseApi.searchNovels(searchData);
-      setNovels(res.data.data || []);
-      setPagination({
-        current: 1,
-        pageSize: res.data.pagination.limit,
-        total: res.data.pagination.total,
-      });
-    } catch (error) {
-      message.error('搜索小说失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // 列表与搜索统一走 POST search 端点：无关键词时后端等价于列表查询，
+  // 从而保证翻页/换页大小时携带同一套筛选条件（此前翻页走 GET /novels 只带 taskId，条件丢失）
+  const fetchNovels = useCallback(
+    async (page = 1, pageSizeArg = null) => {
+      const size = pageSizeArg || pagination.pageSize;
+      setLoading(true);
+      try {
+        const res = await browseApi.searchNovels(buildSearchParams(page, size));
+        setNovels(res.data.data || []);
+        setPagination({
+          current: res.data.pagination.page,
+          pageSize: res.data.pagination.limit,
+          total: res.data.pagination.total,
+        });
+      } catch (error) {
+        message.error('获取小说列表失败');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [pagination.pageSize, buildSearchParams]
+  );
 
+  // 首次加载及已应用筛选变化时回到第 1 页拉取（翻页由 handlePaginationChange 单独触发）
   useEffect(() => {
     fetchNovels(1);
   }, [fetchNovels]);
+
+  // 提交草稿筛选条件；实际请求由 appliedFilters 变化触发的 effect 统一发出
+  const handleSearch = () => {
+    setPagination((prev) => ({ ...prev, current: 1 }));
+    setAppliedFilters({ ...filters });
+  };
 
   const handlePaginationChange = (page) => {
     fetchNovels(page, pagination.pageSize);
   };
 
   const handlePageSizeChange = (value) => {
-    setPagination({ ...pagination, current: 1, pageSize: value });
-    fetchNovels(1, value);
+    // 仅更新状态：pageSize 变化会重建 fetchNovels 并由 effect 以第 1 页重新拉取
+    setPagination((prev) => ({ ...prev, current: 1, pageSize: value }));
   };
 
   const handleTaskFilter = (value) => {
@@ -264,6 +268,8 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                 placeholder='搜索小说标题或作者'
                 value={filters.keyword}
                 onChange={handleKeywordChange}
+                onPressEnter={handleSearch}
+                allowClear
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
@@ -318,14 +324,9 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                 </Button>
                 <Button
                   onClick={() => {
-                    setFilters({
-                      taskId: '',
-                      keyword: '',
-                      dateRange: null,
-                      minWords: '',
-                      maxWords: '',
-                    });
-                    fetchNovels(1);
+                    setFilters(DEFAULT_FILTERS);
+                    setAppliedFilters(DEFAULT_FILTERS);
+                    setPagination((prev) => ({ ...prev, current: 1 }));
                   }}
                 >
                   重置

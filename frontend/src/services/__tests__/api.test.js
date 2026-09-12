@@ -5,11 +5,18 @@ import api, { taskApi, browseApi } from '../api';
 let capturedConfig;
 let adapterResponse;
 let adapterReject;
+// 可编排的 adapter（如 401→刷新成功→重放序列）；优先于 adapterResponse/adapterReject
+let adapterHandler;
 
 api.defaults.adapter = async (config) => {
   capturedConfig = config;
+  if (adapterHandler) {
+    return adapterHandler(config);
+  }
   if (adapterReject) {
-    throw adapterReject;
+    // 透传真实 config：拦截器依赖 config.url/_authRefresh 等标记判定，
+    // 静态 config 会让刷新请求丢失标记，无法模拟真实 axios 行为
+    throw { ...adapterReject, config };
   }
   return adapterResponse || {
     data: { success: true },
@@ -25,6 +32,7 @@ beforeEach(() => {
   capturedConfig = null;
   adapterResponse = null;
   adapterReject = null;
+  adapterHandler = null;
 });
 
 afterEach(() => {
@@ -87,7 +95,7 @@ describe('api.js 请求拦截器', () => {
 });
 
 describe('api.js 响应拦截器', () => {
-  it('401 时清除本地认证并触发跳转登录页', async () => {
+  it('401 且刷新失败时清除本地认证并触发跳转登录页', async () => {
     localStorage.setItem('user', 'u');
     localStorage.setItem('accessToken', 'tok-123');
     adapterReject = { response: { status: 401, data: {} }, config: {} };
@@ -96,6 +104,44 @@ describe('api.js 响应拦截器', () => {
     expect(localStorage.getItem('accessToken')).toBeNull();
     expect(localStorage.getItem('user')).toBeNull();
     // jsdom 不支持真实导航，location.href 赋值结果无法断言，仅验证清理逻辑
+  });
+
+  it('401 时静默用 refresh 换新令牌并重放原请求（用户无感）', async () => {
+    localStorage.setItem('accessToken', 'old-tok');
+    const calls = [];
+    adapterHandler = vi.fn(async (config) => {
+      calls.push(config.url);
+      if (config.url === '/auth/refresh') {
+        return {
+          data: { success: true, data: { accessToken: 'new-tok', expiresIn: 3600 } },
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          config,
+        };
+      }
+      // 首次 /tasks 用旧令牌 → 401；刷新后重放 → 200
+      if (config.headers.Authorization === 'Bearer old-tok') {
+        // eslint-disable-next-line no-throw-literal
+        throw { response: { status: 401, data: {} }, config };
+      }
+      return {
+        data: { data: [{ id: 1 }] },
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        config,
+      };
+    });
+
+    const res = await taskApi.getAll();
+
+    // 调用序列：原请求 401 → /auth/refresh → 重放原请求
+    expect(calls).toEqual(['/tasks', '/auth/refresh', '/tasks']);
+    expect(res.data.data).toEqual([{ id: 1 }]);
+    expect(localStorage.getItem('accessToken')).toBe('new-tok');
+    // 重放请求携带新令牌
+    expect(capturedConfig.headers.Authorization).toBe('Bearer new-tok');
   });
 });
 

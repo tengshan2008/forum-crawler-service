@@ -21,10 +21,44 @@ const API_TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT) || 30000;
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT,
+  // 刷新令牌在 httpOnly cookie 中，/auth/refresh 必须携带凭证才能读到
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// 401 单飞刷新：并发请求同时过期时只发一次 /auth/refresh，其余请求共享同一 Promise
+let refreshPromise = null;
+
+const clearAuthAndRedirect = () => {
+  localStorage.removeItem('user');
+  localStorage.removeItem('accessToken');
+  window.location.href = '/login';
+};
+
+// 这些端点的 401 不触发刷新（本身就是认证流程或刷新请求），直接按未登录处理
+const isAuthRequest = (url = '') =>
+  ['/auth/login', '/auth/register', '/auth/refresh', '/auth/logout'].some((p) => url.includes(p));
+
+// 用 refreshToken cookie 换新 accessToken（刷新结果全实例复用，不重复刷新）
+const ensureRefreshedToken = () => {
+  if (!refreshPromise) {
+    // 标记 _authRefresh：该请求自身若再遇 401，不再递归刷新
+    refreshPromise = api
+      .post('/auth/refresh', null, { _authRefresh: true })
+      .then((res) => {
+        const newToken = res.data?.data?.accessToken;
+        if (!newToken) throw new Error('刷新响应缺少 accessToken');
+        localStorage.setItem('accessToken', newToken);
+        return newToken;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+};
 
 // 请求拦截器：添加认证令牌
 api.interceptors.request.use(
@@ -59,13 +93,32 @@ api.interceptors.response.use(
     } else if (error.response.status === 404) {
       message.error('资源不存在');
     } else if (error.response.status === 401) {
-      // 处理所有认证失败情况，包括令牌过期和无效令牌
-      message.error(error.response.data?.message || '登录已过期，请重新登录');
-      // 清除本地存储的认证信息
-      localStorage.removeItem('user');
-      localStorage.removeItem('accessToken');
-      // 跳转到登录页面
-      window.location.href = '/login';
+      const originalRequest = error.config || {};
+      // 认证类端点（登录/注册/刷新/登出）、已重放过的请求、刷新请求自身不再刷新，
+      // 直接按会话失效处理，避免无限递归
+      if (
+        isAuthRequest(originalRequest.url) ||
+        originalRequest._retry ||
+        originalRequest._authRefresh
+      ) {
+        message.error(error.response.data?.message || '登录已过期，请重新登录');
+        clearAuthAndRedirect();
+        return Promise.reject(error);
+      }
+
+      // accessToken 过期：静默用 refreshToken cookie 换新令牌后重放原请求（用户无感）
+      return ensureRefreshedToken()
+        .then((newToken) => {
+          originalRequest._retry = true;
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return api(originalRequest);
+        })
+        .catch((refreshError) => {
+          message.error('登录已过期，请重新登录');
+          clearAuthAndRedirect();
+          return Promise.reject(refreshError);
+        });
     }
     return Promise.reject(error);
   }

@@ -27,7 +27,7 @@
 }
 
 .admin-config-panel .ant-table th {
-  background-color: #fafafa;
+  background-color: var(--surface-subtle);
   font-weight: 600;
 }
 

@@ -266,6 +266,38 @@ docker-compose -f docker/docker-compose.yml logs backend
 lsof -i :5000
 ```
 
+### 访问页面/API 返回 502 Bad Gateway
+
+502 是 nginx（前端容器内或宿主 nginx）连不上上游 backend:5000。先取证据再分流：
+
+```bash
+# 1. backend 容器状态：running 但 (health: unhealthy) 说明端口没在监听
+docker compose -f docker/docker-compose.yml ps
+
+# 2. 前端 nginx 的上游错误：connection refused = 后端没监听；timeout = 后端阻塞
+docker compose -f docker/docker-compose.yml logs --tail=100 frontend | grep upstream
+
+# 3. 直接进后端容器确认进程与端口（正常应看到 node src/index.js 与 5000 LISTEN）
+docker compose -f docker/docker-compose.yml exec backend sh -c 'ps aux; netstat -ltnp 2>/dev/null | grep 5000'
+
+# 4. 后端自身日志（启动崩溃会打在这里，例如 JWT 密钥缺失、Mongo 连不上）
+docker compose -f docker/docker-compose.yml logs --tail=200 backend
+```
+
+典型场景与处理：
+
+- **日志是 `connect() failed (111: Connection refused) ... upstream: "http://...:5000"`，
+  容器里只有 `sleep infinity` 没有 node 进程**：镜像启动命令错误（历史版本生产 Dockerfile
+  的 CMD 曾被误改为 `sleep infinity`，v2.13.2 已修回 `npm start`）。拉取最新代码后
+  重新构建并重建后端容器：
+  `docker compose -f docker/docker-compose.yml build backend && docker compose -f docker/docker-compose.yml up -d backend`
+- **backend 在反复重启（Restarting/Exited）**：看 `logs backend`，按报错处理
+  （最常见是 JWT 密钥缺失，见下节；其次是 Mongo/Redis 未就绪）。
+- **构建阶段报 `COPY public: "/app/public": not found`**：旧 Dockerfile 复制了仓库中已不存在的
+  `public/` 目录（v2.13.2 起改由 `RUN mkdir -p` 创建），更新代码后重新 build 即可。
+- **上游是 timeout 而非 refused**：后端被慢请求/数据库连接阻塞，排查对应路由与 Mongo 负载，
+  必要时调大 nginx `proxy_read_timeout`。
+
 ### 后端报「安全环境变量缺失…JWT_SECRET, JWT_REFRESH_SECRET」
 
 说明 compose 未把 JWT 密钥传入容器。按上文第 3 步创建 `docker/.env`（`cp docker/.env.example docker/.env`

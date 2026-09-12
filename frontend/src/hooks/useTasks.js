@@ -106,6 +106,8 @@ export function useTasks() {
   }, [fetchTasks, fetchStats]);
   const startTask = useCallback((id) => runTaskAction(() => taskApi.start(id), '任务已启动'), [runTaskAction]);
   const pauseTask = useCallback((id) => runTaskAction(() => taskApi.pause(id), '任务已暂停'), [runTaskAction]);
+  // 恢复已暂停任务（paused 是 pause/cancel 后的可恢复状态，后端 resumeTask 重新入队）
+  const resumeTask = useCallback((id) => runTaskAction(() => taskApi.resume(id), '任务已恢复'), [runTaskAction]);
   // D4：取消排队中的任务（后端回退到 paused）
   const cancelTask = useCallback((id) => runTaskAction(() => taskApi.cancel(id), '任务已取消'), [runTaskAction]);
   // 失败任务重新启动
@@ -132,6 +134,7 @@ export function useTasks() {
     batchDelete,
     startTask,
     pauseTask,
+    resumeTask,
     cancelTask,
     retryTask,
   };

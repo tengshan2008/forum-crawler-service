@@ -24,10 +24,13 @@ import {
   RightOutlined,
   EyeOutlined,
   DeleteOutlined,
+  HeartOutlined,
+  HeartFilled,
 } from '@ant-design/icons';
 import Masonry from 'react-masonry-css';
 import dayjs from 'dayjs';
 import { browseApi, taskApi } from '../services/api';
+import CollectionPickerModal from './CollectionPickerModal';
 import './ImageBrowser.css';
 
 const { RangePicker } = DatePicker;
@@ -69,6 +72,9 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   const [previewImage, setPreviewImage] = useState(null);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [fullViewMode, setFullViewMode] = useState(false);
+  // 收藏夹数据与「收藏」弹窗目标分组（收藏粒度为整个 Post/图片组）
+  const [collections, setCollections] = useState([]);
+  const [pickerGroup, setPickerGroup] = useState(null);
 
   // 获取任务列表（任务筛选项，误用小说接口会导致下拉空白：返回项没有 name 字段）
   useEffect(() => {
@@ -82,6 +88,25 @@ const ImageBrowser = ({ filtersVisible = true }) => {
     };
     fetchTasks();
   }, []);
+
+  // 收藏夹数据（items 为 postId 集合），一次请求即可推导图片组的已收藏状态
+  const fetchCollections = useCallback(async () => {
+    try {
+      const res = await browseApi.getCollections({ page: 1, limit: 100 });
+      setCollections(res.data.data || []);
+    } catch {
+      // 收藏夹加载失败不阻塞浏览主流程
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCollections();
+  }, [fetchCollections]);
+
+  // 已收藏 Post 集合（心形点亮依据，与 NovelBrowser 同口径）
+  const favoritedGroupIds = new Set(
+    collections.flatMap((c) => (c.items || []).map(String))
+  );
 
   // 统一构参层：搜索、翻页、删除后刷新都从 appliedFilters 派生同一套请求参数
   const buildQueryParams = useCallback(
@@ -446,8 +471,8 @@ const ImageBrowser = ({ filtersVisible = true }) => {
 
                   <div className='group-actions'>
                     <Space style={{ width: '100%', gap: '8px' }}>
-                      <Button 
-                        type='primary' 
+                      <Button
+                        type='primary'
                         icon={<EyeOutlined />}
                         onClick={(e) => {
                           e.stopPropagation();
@@ -457,6 +482,21 @@ const ImageBrowser = ({ filtersVisible = true }) => {
                       >
                         查看全部 ({group.totalImages} 张)
                       </Button>
+                      <Tooltip title={favoritedGroupIds.has(String(group._id)) ? '已收藏，点击管理' : '收藏'}>
+                        <Button
+                          icon={
+                            favoritedGroupIds.has(String(group._id)) ? (
+                              <HeartFilled style={{ color: '#eb2f96' }} />
+                            ) : (
+                              <HeartOutlined />
+                            )
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPickerGroup(group);
+                          }}
+                        />
+                      </Tooltip>
                       <Button
                         danger
                         icon={<DeleteOutlined />}
@@ -735,6 +775,15 @@ const ImageBrowser = ({ filtersVisible = true }) => {
           />
         </div>
       </Modal>
+
+      {/* 收藏到收藏夹弹窗（图片/小说浏览共用，收藏粒度为整个图片组 Post） */}
+      <CollectionPickerModal
+        open={!!pickerGroup}
+        post={pickerGroup}
+        collections={collections}
+        onClose={() => setPickerGroup(null)}
+        onChanged={fetchCollections}
+      />
     </div>
   );
 };

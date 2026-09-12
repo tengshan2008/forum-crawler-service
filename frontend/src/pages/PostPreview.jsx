@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Pagination, Select } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, CopyOutlined } from '@ant-design/icons';
-import { postApi } from '../services/api';
+import { postApi, taskApi } from '../services/api';
 import dayjs from 'dayjs';
 
 const PostPreview = () => {
@@ -16,10 +16,11 @@ const PostPreview = () => {
 
   const fetchTaskInfo = useCallback(async () => {
     try {
-      const response = await fetch(`/api/tasks/${taskId}`);
-      const result = await response.json();
-      if (result.data) {
-        setTask(result.data);
+      // 必须走 taskApi（axios 实例会附加 Bearer 令牌）；裸 fetch 不带 Authorization，
+      // /api/tasks/:id 挂了 authMiddleware，会导致任务统计信息 401 取不到
+      const response = await taskApi.getById(taskId);
+      if (response.data?.data) {
+        setTask(response.data.data);
       }
     } catch (error) {
       console.error('Error fetching task info:', error);

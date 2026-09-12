@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider, Grid, Pagination, Empty, Spin } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { taskApi } from '../services/api';
@@ -38,8 +38,11 @@ const TaskList = () => {
     tasks, loading, pagination, setPagination, crawlTypeFilter, setCrawlTypeFilter,
     statusFilter, setStatusFilter, keyword, setKeyword,
     stats, selectedIds, setSelectedIds, sort, setSort,
-    fetchTasks, deleteTask, batchDelete, startTask, pauseTask, cancelTask, retryTask,
+    fetchTasks, deleteTask, batchDelete, startTask, pauseTask, resumeTask, cancelTask, retryTask,
   } = useTasks();
+  // md 以下（<768px）用卡片列表替代表格，避免 1200px 横向滚动表格在手机上不可用
+  const screens = Grid.useBreakpoint();
+  const isMobile = !screens.md;
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [submitting, setSubmitting] = useState(false);
@@ -456,47 +459,55 @@ const TaskList = () => {
       key: 'action',
       width: 150,
       fixed: 'right',
-      render: (_, record) => {
-        // 低频操作收进「更多」下拉，保持行内视觉干净
-        const moreItems = [
-          { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => handleEditTask(record) },
-          { key: 'preview', icon: <EyeOutlined />, label: '预览', onClick: () => handlePreview(record._id) },
-          { type: 'divider' },
-          { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDeleteConfirm(record) },
-        ];
-        return (
-          <Space size={0}>
-            {record.status === 'pending' && (
-              <Tooltip title="开始">
-                <Button type="text" size="small" icon={<PlayCircleOutlined />} onClick={() => startTask(record._id)} />
-              </Tooltip>
-            )}
-            {record.status === 'running' && (
-              <Tooltip title="暂停">
-                <Button type="text" size="small" danger icon={<PauseOutlined />} onClick={() => pauseTask(record._id)} />
-              </Tooltip>
-            )}
-            {record.status === 'failed' && (
-              <Tooltip title="重试">
-                <Button type="text" size="small" icon={<RedoOutlined />} onClick={() => retryTask(record._id)} />
-              </Tooltip>
-            )}
-            {record.status === 'pending' && (
-              <Popconfirm title="确认取消该排队任务?" onConfirm={() => cancelTask(record._id)}>
-                <Button type="text" size="small" danger icon={<StopOutlined />} title="取消排队" />
-              </Popconfirm>
-            )}
-            <Tooltip title="日志">
-              <Button type="text" size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(record._id)} />
-            </Tooltip>
-            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
-              <Button type="text" size="small" icon={<MoreOutlined />} title="更多操作" />
-            </Dropdown>
-          </Space>
-        );
-      },
+      render: (_, record) => renderTaskActions(record),
     },
   ];
+
+  // 行内操作（桌面表格列与移动端卡片共用，保证两处能力一致）
+  function renderTaskActions(record) {
+    // 低频操作收进「更多」下拉，保持行内视觉干净
+    const moreItems = [
+      { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => handleEditTask(record) },
+      { key: 'preview', icon: <EyeOutlined />, label: '预览', onClick: () => handlePreview(record._id) },
+      { type: 'divider' },
+      { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDeleteConfirm(record) },
+    ];
+    return (
+      <Space size={0}>
+        {record.status === 'pending' && (
+          <Tooltip title="开始">
+            <Button type="text" size="small" icon={<PlayCircleOutlined />} onClick={() => startTask(record._id)} />
+          </Tooltip>
+        )}
+        {record.status === 'running' && (
+          <Tooltip title="暂停">
+            <Button type="text" size="small" danger icon={<PauseOutlined />} onClick={() => pauseTask(record._id)} />
+          </Tooltip>
+        )}
+        {record.status === 'paused' && (
+          <Tooltip title="恢复">
+            <Button type="text" size="small" icon={<PlayCircleOutlined />} onClick={() => resumeTask(record._id)} />
+          </Tooltip>
+        )}
+        {record.status === 'failed' && (
+          <Tooltip title="重试">
+            <Button type="text" size="small" icon={<RedoOutlined />} onClick={() => retryTask(record._id)} />
+          </Tooltip>
+        )}
+        {record.status === 'pending' && (
+          <Popconfirm title="确认取消该排队任务?" onConfirm={() => cancelTask(record._id)}>
+            <Button type="text" size="small" danger icon={<StopOutlined />} title="取消排队" />
+          </Popconfirm>
+        )}
+        <Tooltip title="日志">
+          <Button type="text" size="small" icon={<FileTextOutlined />} onClick={() => handleViewLogs(record._id)} />
+        </Tooltip>
+        <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+          <Button type="text" size="small" icon={<MoreOutlined />} title="更多操作" />
+        </Dropdown>
+      </Space>
+    );
+  }
 
   return (
     <div className="task-list">
@@ -551,7 +562,7 @@ const TaskList = () => {
           <Button icon={<ReloadOutlined />} onClick={() => { fetchTasks(); }}>
             刷新
           </Button>
-          {selectedIds.length > 0 && (
+          {!isMobile && selectedIds.length > 0 && (
             <Popconfirm
               title={`确认删除选中的 ${selectedIds.length} 个任务？`}
               onConfirm={() => batchDelete(selectedIds)}
@@ -600,6 +611,75 @@ const TaskList = () => {
         </Space>
       </div>
 
+      {isMobile ? (
+        /* 移动端卡片列表：信息按层级重排（名称+状态 / 元信息 / 进度 / 统计+操作），
+           操作按钮复用 renderTaskActions，能力与桌面行内操作一致；批量选择为桌面低频操作不在移动端暴露 */
+        <div>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}><Spin /></div>
+          ) : tasks.length === 0 ? (
+            <Empty description="暂无任务" style={{ padding: '40px 0' }} />
+          ) : (
+            <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+              {tasks.map((record) => {
+                const meta = STATUS_META[record.status];
+                const pct = typeof record.progress === 'number'
+                  ? Math.min(100, Math.max(0, record.progress))
+                  : 0;
+                const barStatus = record.status === 'failed'
+                  ? 'exception'
+                  : record.status === 'running' ? 'active' : 'normal';
+                const crawlTypeLabel = record.crawlType === 'batch' ? '批量采集' : '单帖采集';
+                return (
+                  <Card key={record._id} size="small">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                      <Tooltip title={record.name || ''} placement="topLeft">
+                        <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {record.name || '-'}
+                        </span>
+                      </Tooltip>
+                      <Tag color={meta?.color || 'default'} style={{ flexShrink: 0, marginInlineEnd: 0 }}>
+                        {meta?.label || record.status}
+                      </Tag>
+                    </div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 12, margin: '8px 0' }}>
+                      {TASK_TYPE_LABELS[record.taskType] || record.taskType || '-'} · {crawlTypeLabel} · {dayjs(record.createdAt).format('MM-DD HH:mm')}
+                    </div>
+                    <Progress size="small" percent={pct} status={barStatus} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, gap: 8 }}>
+                      <Space size={4} wrap>
+                        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                          爬取 {record.crawledItems ?? 0}
+                        </span>
+                        {record.skippedItems > 0 && (
+                          <Tag color="orange" style={{ marginInlineEnd: 0 }}>{record.skippedItems} 跳过</Tag>
+                        )}
+                        {record.failedItems > 0 && (
+                          <Tag color="red" style={{ marginInlineEnd: 0 }}>{record.failedItems} 失败</Tag>
+                        )}
+                      </Space>
+                      {renderTaskActions(record)}
+                    </div>
+                  </Card>
+                );
+              })}
+            </Space>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <Pagination
+              size="small"
+              current={pagination.current}
+              pageSize={pagination.pageSize}
+              total={pagination.total}
+              showSizeChanger
+              showTotal={(total) => `共 ${total} 条`}
+              onChange={(page, pageSize) =>
+                setPagination({ ...pagination, current: page, pageSize })
+              }
+            />
+          </div>
+        </div>
+      ) : (
       <Table
         columns={columns}
         dataSource={tasks}
@@ -646,9 +726,9 @@ const TaskList = () => {
                       {record.skipReasons.map((reason, idx) => (
                         <div key={idx} style={{
                           padding: '12px',
-                          border: '1px solid #f0f0f0',
+                          border: '1px solid var(--border-color)',
                           borderRadius: '4px',
-                          backgroundColor: '#fafafa'
+                          backgroundColor: 'var(--surface-subtle)'
                         }}>
                           <div style={{ marginBottom: '8px' }}>
                             <Tag color={getReasonColor(reason.reason)}>
@@ -679,6 +759,7 @@ const TaskList = () => {
           rowExpandable: (record) => record.skipReasons && record.skipReasons.length > 0,
         }}
       />
+      )}
 
       <Modal
         title={editingTask ? '编辑任务' : '新建任务'}

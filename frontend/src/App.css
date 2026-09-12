@@ -31,12 +31,25 @@
 }
 
 .ant-layout-header {
-  background: #fff;
+  background: var(--header-bg);
   padding: 0 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   position: sticky;
   top: 0;
   z-index: 99;
+}
+
+/* 移动端汉堡按钮与顶栏标题 */
+.header-trigger {
+  font-size: 18px;
+  padding: 0 12px 0 0;
+  cursor: pointer;
+}
+
+.app-header-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ant-layout-header h1 {
@@ -46,19 +59,15 @@
   font-weight: 600;
 }
 
-/* 内容区只负责灰底与呼吸间距；白色卡片由各页面根容器（如 .task-list）提供 */
+/* 内容区只负责底色与呼吸间距；表面色由各页面根容器（如 .task-list）提供，
+   背景统一走主题变量（定义见 index.css），暗色下不残留亮底 */
 .ant-layout-content {
   padding: 24px;
-  background: #f5f5f5;
+  background: var(--app-bg);
   min-height: calc(100vh - 64px);
 }
 
-.task-list {
-  background-color: #fff;
-  padding: 24px;
-  border-radius: 2px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-}
+/* .task-list 表面色统一定义在 index.css（亮/暗变量），此处不再重复覆盖 */
 
 .post-preview {
   padding: 24px;
@@ -76,25 +85,26 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
   .ant-layout-content {
-    padding: 16px;
+    padding: 12px;
   }
 
   .ant-layout-header {
-    padding: 0 16px;
+    padding: 0 12px;
   }
 
   .ant-layout-header h1 {
     font-size: 16px;
   }
+
+  /* 移动端顶栏用户名从简（退出按钮仍保留文字） */
+  .header-username {
+    display: none;
+  }
 }
 
-/* 表格样式 */
+/* 表格样式（行 hover 底色交由 antd 主题 token 管理，避免暗色下亮白块） */
 .ant-table {
   font-size: 14px;
-}
-
-.ant-table-row:hover {
-  background-color: #f5f5f5;
 }
 
 /* 表单样式 */
@@ -125,18 +135,17 @@
   padding: 50px 0;
 }
 
-/* Modal 对话框 */
+/* Modal 对话框（表面色跟随主题变量；图片预览等深色 Modal 内联样式优先级更高，不受影响） */
 .ant-modal-header {
-  background-color: #fafafa;
+  background-color: var(--surface-subtle);
 }
 
-/* Modal 图片预览 */
 .ant-modal-body {
-  background: #ffffff;
+  background: var(--surface);
 }
 
 .ant-modal {
-  background: #ffffff;
+  background: var(--surface);
 }
 
 /* Pagination 分页 */
@@ -152,14 +161,14 @@
 }
 
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background: rgba(128, 128, 128, 0.4);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: rgba(128, 128, 128, 0.6);
 }
