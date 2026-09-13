@@ -99,11 +99,41 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
       let crawlerOutput = {}; // 用于存储从爬虫输出中解析的信息（如标题）
       let crawlerResult = null; // 用于存储爬虫返回的 JSON 结果
 
-      // 设置超时
-      const timer = setTimeout(() => {
-        crawlerProcess.kill('SIGTERM');
-        reject(new Error(`爬虫执行超时 (${timeout}ms)`));
-      }, timeout);
+      // 执行超时（墙钟），但任务暂停期间冻结计时：
+      // 爬虫在暂停闸门上挂起时不消耗执行额度，恢复后用剩余时间重新计时。
+      // deadline 在暂停区间不外推，天然排除暂停时长。
+      let timeoutDeadline = Date.now() + timeout;
+      let runTimer = null;
+      let timerPaused = false;
+
+      const clearRunTimer = () => {
+        if (runTimer) {
+          clearTimeout(runTimer);
+          runTimer = null;
+        }
+      };
+      const armRunTimer = (delay) => {
+        clearRunTimer();
+        runTimer = setTimeout(() => {
+          console.error(`[爬虫] 任务 ${taskId} 执行超时，发送 SIGTERM`);
+          crawlerProcess.kill('SIGTERM');
+          reject(new Error(`爬虫执行超时 (${timeout}ms)`));
+        }, delay);
+      };
+      const pauseRunTimer = () => {
+        if (timerPaused) return;
+        timerPaused = true;
+        clearRunTimer();
+        console.log(`[爬虫] 任务 ${taskId} 已暂停，冻结执行超时计时`);
+      };
+      const resumeRunTimer = () => {
+        if (!timerPaused) return;
+        timerPaused = false;
+        const remaining = Math.max(timeoutDeadline - Date.now(), 1000);
+        armRunTimer(remaining);
+        console.log(`[爬虫] 任务 ${taskId} 已恢复，剩余执行时间 ${Math.round(remaining / 1000)}s`);
+      };
+      armRunTimer(timeout);
 
       // 处理标准输出
       crawlerProcess.stdout.on('data', (data) => {
@@ -162,6 +192,13 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
                 console.warn(`[爬虫] 解析爬虫 JSON 结果失败:`, e.message);
               }
             }
+            // 暂停闸门标记（crawl.py wait_if_paused）：冻结/恢复执行超时计时
+            else if (line.includes('PAUSED:')) {
+              pauseRunTimer();
+            }
+            else if (line.includes('RESUMED:')) {
+              resumeRunTimer();
+            }
           }
         } catch (e) {
           // 忽略解析错误
@@ -181,50 +218,14 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
 
       // 处理进程结束
       crawlerProcess.on('close', async (code) => {
-        clearTimeout(timer);
+        clearRunTimer();
 
         if (code === 0) {
           console.log(`[爬虫] 任务 ${taskId} 完成`);
 
-          // 构建更新数据
-          const updateData = {
-            status: 'completed',
-            progress: 100,
-            endTime: new Date(),
-          };
-
-          // 如果有爬虫结果，更新统计信息
-          if (crawlerResult) {
-            if (crawlerResult.crawled_posts !== undefined) {
-              updateData.crawledItems = crawlerResult.crawled_posts;
-            }
-            if (crawlerResult.skipped_posts !== undefined) {
-              updateData.skippedItems = crawlerResult.skipped_posts;
-            }
-            if (crawlerResult.failed_posts !== undefined) {
-              updateData.failedItems = crawlerResult.failed_posts;
-            }
-            // 保存跳过原因详情
-            if (crawlerResult.skip_details && Array.isArray(crawlerResult.skip_details)) {
-              updateData.skipReasons = crawlerResult.skip_details;
-              console.log(`[爬虫] 保存跳过原因: ${crawlerResult.skip_details.length} 条`);
-            }
-          }
-
-          // 如果解析到标题，更新任务名称
-          if (crawlerOutput.title) {
-            updateData.name = crawlerOutput.title;
-          }
-
-          try {
-            await Task.findByIdAndUpdate(taskId, updateData, { new: true });
-            if (crawlerOutput.title) {
-              console.log(`[爬虫] 更新任务 ${taskId} 名称为: ${crawlerOutput.title}`);
-            }
-          } catch (error) {
-            console.error(`[爬虫] 更新任务失败: ${error.message}`);
-          }
-
+          // 状态与统计一律由 worker 经 taskService.markCompleted 落库
+          //（状态流转只能在 taskService，避免完成写入覆盖用户的暂停等状态）。
+          // 仅组装爬虫结果返回；crawlerResult 含 crawled_posts/skipped_posts/failed_posts/skip_details。
           resolve({
             success: true,
             taskId,
@@ -234,26 +235,14 @@ async function executeCrawler(taskId, forumUrl, taskType, taskConfig, crawlType 
           });
         } else {
           console.error(`[爬虫] 任务 ${taskId} 失败，退出码: ${code}`);
-          // 标记任务为失败
-          try {
-            await Task.findByIdAndUpdate(
-              taskId,
-              {
-                status: 'failed',
-                endTime: new Date(),
-              },
-              { new: true }
-            );
-          } catch (error) {
-            console.error(`[爬虫] 更新任务状态失败: ${error.message}`);
-          }
+          // 不直接写 failed：由 worker catch 统一 taskService.markFailed（追加 errorLog + SSE）
           reject(new Error(`爬虫进程退出，代码: ${code}\n${errorOutput}`));
         }
       });
 
       // 处理进程错误
       crawlerProcess.on('error', (error) => {
-        clearTimeout(timer);
+        clearRunTimer();
         console.error(`[爬虫] 进程错误:`, error);
         reject(error);
       });

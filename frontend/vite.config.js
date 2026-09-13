@@ -53,11 +53,14 @@ export default defineConfig({
           ) {
             return 'react-vendor';
           }
-          // 图标库体量大且独立迭代，单独成包
-          if (id.includes('@ant-design/icons')) return 'antd-icons';
-          // antd 组件库本体、rc-* 底层组件、dayjs（保持单实例）
+          // antd 组件库本体、@ant-design/*（icons/colors/cssinjs 等）、
+          // rc-* 底层组件、dayjs（保持单实例）必须同包：
+          // icons 单独拆包会形成 antd ⇄ antd-icons 循环 chunk 依赖，
+          // icons 模块顶层 setTwoToneColor(blue.primary) 抢在 antd chunk 内
+          // @ant-design/colors 初始化之前执行 → TypeError 白屏（v2.16.1）
           if (
             id.includes('/antd/') ||
+            id.includes('/@ant-design/') ||
             id.includes('/@rc-component/') ||
             id.includes('/rc-') ||
             id.includes('/dayjs/')

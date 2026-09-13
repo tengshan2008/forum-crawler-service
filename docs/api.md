@@ -345,6 +345,11 @@ POST /api/tasks/:id/pause
 **参数**
 - `id` (string): 任务 ID
 
+**行为**
+- `running` 任务：状态置 `paused`，爬虫在当前帖子/分页处理完后于安全边界挂起（3s 内检测到），暂停期间不发起抓取请求、执行超时计时冻结；SSE 推送 `status=paused`
+- `pending` 任务：从 Bull 等待/延迟队列移除 job 后置 `paused`（若 job 恰好转为 active，则按执行中暂停处理，爬虫闸门兜底）
+- 其他状态（`paused`/`completed`/`failed`）返回 `400`
+
 **响应示例**
 ```json
 {
@@ -368,6 +373,12 @@ POST /api/tasks/:id/resume
 
 **参数**
 - `id` (string): 任务 ID
+
+**行为**
+- 仅 `paused` 状态可恢复，其他状态返回 `400`
+- 爬虫进程仍存活（Bull 中存在 active job）：置回 `running`，暂停闸门自动放行，任务从断点继续
+- 无 active job（暂停的是排队任务，或执行节点重启导致进程消失）：置回 `running` 并重新入队执行
+- SSE 推送 `status=running`
 
 **响应示例**
 ```json

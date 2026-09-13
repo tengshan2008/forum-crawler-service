@@ -13,6 +13,14 @@ async function processCrawlerJob(job) {
   try {
     console.log(`[爬虫队列] 开始处理任务: ${taskId}`);
 
+    // 启动闸门：服务重启后 Bull 重投递的 job 可能对应仍被用户暂停的任务，
+    // 必须先等暂停解除再 markRunning（否则会把 paused 覆盖回 running）
+    const runnable = await taskService.awaitTaskRunnable(taskId);
+    if (!runnable) {
+      // 任务已删除或已终态：安静结束该 job，不做任何状态流转
+      return null;
+    }
+
     await taskService.markRunning(taskId);
     taskEventBus.publish(taskId, 'status', { status: 'running' }).catch(() => {});
 

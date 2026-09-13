@@ -80,6 +80,14 @@ async function removeQueuedTask(taskId) {
   return true;
 }
 
+// 查找指定任务当前处于 active 的 job（跨实例可见：active 状态存于 Redis）
+// 用于 resume：有 active job 说明爬虫进程在暂停闸门上等待，只需放行状态；
+// 没有 active job（暂停的是排队 job、或进程随旧节点消失）则需要重新入队。
+async function findActiveJobForTask(taskId) {
+  const jobs = await crawlerQueue.getJobs(['active']);
+  return jobs.find((job) => job.data && job.data.taskId === taskId) || null;
+}
+
 // 清空队列
 async function clearQueue() {
   await crawlerQueue.empty();
@@ -90,6 +98,7 @@ module.exports = {
   crawlerQueue,
   addCrawlerTask,
   removeQueuedTask,
+  findActiveJobForTask,
   getQueueStats,
   clearQueue,
 };

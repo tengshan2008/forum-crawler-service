@@ -12,6 +12,7 @@ jest.mock('../../models/Task', () => mockTask);
 jest.mock('../../services/crawlerQueue', () => ({
   addCrawlerTask: jest.fn(),
   removeQueuedTask: jest.fn(),
+  findActiveJobForTask: jest.fn(),
   getQueueStats: jest.fn(),
 }));
 jest.mock('../../services/taskEventBus', () => ({
@@ -349,11 +350,14 @@ describe('taskService 状态机与归属（start/pause/resume）', () => {
     expect(addCrawlerTask).toHaveBeenCalledWith('t1', 'http://s', task.taskType, task.config, 'batch');
   });
 
-  it('pauseTask：running 状态暂停成功；非所有者抛 403', async () => {
+  it('pauseTask：running 状态暂停成功（不动队列，发布 paused 事件）；非所有者抛 403', async () => {
+    const { removeQueuedTask } = require('../../services/crawlerQueue');
     const task = makeTask({ status: 'running' });
     mockTask.findById.mockResolvedValue(task);
     await service.pauseTask('t1', { role: 'user', userId: 'u1' });
     expect(task.status).toBe('paused');
+    expect(removeQueuedTask).not.toHaveBeenCalled();
+    expect(taskEventBus.publish).toHaveBeenCalledWith('t1', 'status', { status: 'paused' });
 
     mockTask.findById.mockResolvedValue(makeTask({ userId: 'owner' }));
     await expectAppError(
@@ -362,14 +366,104 @@ describe('taskService 状态机与归属（start/pause/resume）', () => {
     );
   });
 
-  it('resumeTask：paused 状态恢复为 running', async () => {
-    const task = makeTask({ status: 'paused' });
+  it('pauseTask：pending 状态先移出等待队列再置 paused', async () => {
+    const { removeQueuedTask } = require('../../services/crawlerQueue');
+    const task = makeTask({ status: 'pending' });
     mockTask.findById.mockResolvedValue(task);
+    removeQueuedTask.mockResolvedValue(true);
+
+    await service.pauseTask('t1', { role: 'user', userId: 'u1' });
+
+    expect(removeQueuedTask).toHaveBeenCalledWith('t1');
+    expect(task.status).toBe('paused');
+  });
+
+  it('pauseTask：pending 转 active 的竞态下移除返回 false 仍置 paused（爬虫闸门兜底）', async () => {
+    const { removeQueuedTask } = require('../../services/crawlerQueue');
+    const task = makeTask({ status: 'pending' });
+    mockTask.findById.mockResolvedValue(task);
+    removeQueuedTask.mockResolvedValue(false);
+
+    await service.pauseTask('t1', { role: 'user', userId: 'u1' });
+
+    expect(task.status).toBe('paused');
+  });
+
+  it('pauseTask：paused/completed/failed 状态重复暂停抛 400，不写库不发事件', async () => {
+    const { removeQueuedTask } = require('../../services/crawlerQueue');
+    for (const status of ['paused', 'completed', 'failed']) {
+      jest.clearAllMocks();
+      mockTask.findById.mockResolvedValue(makeTask({ status }));
+      await expectAppError(
+        service.pauseTask('t1', { role: 'user', userId: 'u1' }),
+        400
+      );
+    }
+    expect(removeQueuedTask).not.toHaveBeenCalled();
+    expect(taskEventBus.publish).not.toHaveBeenCalled();
+  });
+
+  it('resumeTask：有 active job 时仅置 running 放行闸门，不重新入队', async () => {
+    const { findActiveJobForTask, addCrawlerTask } = require('../../services/crawlerQueue');
+    const task = makeTask({ status: 'paused', progress: 40, crawledItems: 4 });
+    mockTask.findById.mockResolvedValue(task);
+    findActiveJobForTask.mockResolvedValue({ id: 'bull-job-1' });
 
     await service.resumeTask('t1', { role: 'user', userId: 'u1' });
 
     expect(task.status).toBe('running');
+    expect(task.progress).toBe(40); // 继续执行：进度不重置
+    expect(addCrawlerTask).not.toHaveBeenCalled();
     expect(task.save).toHaveBeenCalled();
+    expect(taskEventBus.publish).toHaveBeenCalledWith('t1', 'status', { status: 'running' });
+  });
+
+  it('resumeTask：无 active job（排队暂停/进程消失）时重置进度并重新入队', async () => {
+    const { findActiveJobForTask, addCrawlerTask } = require('../../services/crawlerQueue');
+    const task = makeTask({
+      status: 'paused',
+      crawlType: 'batch',
+      sectionUrl: 'http://s',
+      progress: 40,
+      crawledItems: 4,
+    });
+    mockTask.findById.mockResolvedValue(task);
+    findActiveJobForTask.mockResolvedValue(null);
+    addCrawlerTask.mockResolvedValue(undefined);
+
+    await service.resumeTask('t1', { role: 'user', userId: 'u1' });
+
+    expect(task.status).toBe('running');
+    expect(task.progress).toBe(0);
+    expect(task.crawledItems).toBe(0);
+    expect(addCrawlerTask).toHaveBeenCalledWith('t1', 'http://s', task.taskType, task.config, 'batch');
+  });
+
+  it('resumeTask：非 paused 状态抛 400，不查队列不入队', async () => {
+    const { findActiveJobForTask, addCrawlerTask } = require('../../services/crawlerQueue');
+    mockTask.findById.mockResolvedValue(makeTask({ status: 'running' }));
+
+    await expectAppError(
+      service.resumeTask('t1', { role: 'user', userId: 'u1' }),
+      400
+    );
+    expect(findActiveJobForTask).not.toHaveBeenCalled();
+    expect(addCrawlerTask).not.toHaveBeenCalled();
+  });
+
+  it('resumeTask：重新入队失败时置 failed 追加 errorLog 并抛 500', async () => {
+    const { findActiveJobForTask, addCrawlerTask } = require('../../services/crawlerQueue');
+    const task = makeTask({ status: 'paused', crawlType: 'single', forumUrl: 'http://p' });
+    mockTask.findById.mockResolvedValue(task);
+    findActiveJobForTask.mockResolvedValue(null);
+    addCrawlerTask.mockRejectedValue(new Error('redis down'));
+
+    await expectAppError(
+      service.resumeTask('t1', { role: 'user', userId: 'u1' }),
+      500
+    );
+    expect(task.status).toBe('failed');
+    expect(task.errorLog).toHaveLength(1);
   });
 
   it('任务不存在时 start/pause/resume 均抛 404', async () => {
@@ -439,6 +533,25 @@ describe('taskService 系统内部状态流转（队列 worker / 调度器专用
       expect(task.totalItems).toBe(1);
     });
 
+    it('跳过/失败统计与 skip_details 随结果一并落库（executor 不再直接写状态）', async () => {
+      const task = makeTask({ name: '标题' });
+      mockTask.findById.mockResolvedValue(task);
+      const skipDetails = [{ url: 'http://x', reason: 'duplicate', message: '重复' }];
+
+      await service.markCompleted('t1', {
+        crawled_posts: 2,
+        total_posts: 4,
+        skipped_posts: 1,
+        failed_posts: 1,
+        skip_details: skipDetails,
+      });
+
+      expect(task.status).toBe('completed');
+      expect(task.skippedItems).toBe(1);
+      expect(task.failedItems).toBe(1);
+      expect(task.skipReasons).toBe(skipDetails);
+    });
+
     it('任务不存在抛 404', async () => {
       mockTask.findById.mockResolvedValue(null);
       await expectAppError(service.markCompleted('x', {}), 404);
@@ -493,6 +606,41 @@ describe('taskService 系统内部状态流转（队列 worker / 调度器专用
       expect(task.failedItems).toBe(0);
       expect(task.save).toHaveBeenCalled();
       expect(result).toBe(task);
+    });
+  });
+
+  describe('awaitTaskRunnable（worker 启动闸门）', () => {
+    const makeRunnableTask = (status) => ({ _id: 't1', status, save: jest.fn() });
+
+    it('running 状态立即放行', async () => {
+      mockTask.findById.mockResolvedValue(makeRunnableTask('running'));
+      await expect(service.awaitTaskRunnable('t1')).resolves.toBe(true);
+      expect(mockTask.findById).toHaveBeenCalledTimes(1);
+    });
+
+    it('pending 状态也放行（markRunning 负责转运行）', async () => {
+      mockTask.findById.mockResolvedValue(makeRunnableTask('pending'));
+      await expect(service.awaitTaskRunnable('t1')).resolves.toBe(true);
+    });
+
+    it('paused 时按间隔轮询，恢复 running 后放行', async () => {
+      mockTask.findById
+        .mockResolvedValueOnce(makeRunnableTask('paused'))
+        .mockResolvedValueOnce(makeRunnableTask('paused'))
+        .mockResolvedValueOnce(makeRunnableTask('running'));
+
+      await expect(service.awaitTaskRunnable('t1', { pollInterval: 1 })).resolves.toBe(true);
+      expect(mockTask.findById).toHaveBeenCalledTimes(3);
+    });
+
+    it('completed/failed 终态任务不放行（避免覆盖终态）', async () => {
+      mockTask.findById.mockResolvedValue(makeRunnableTask('completed'));
+      await expect(service.awaitTaskRunnable('t1')).resolves.toBe(false);
+    });
+
+    it('任务已删除时不放行', async () => {
+      mockTask.findById.mockResolvedValue(null);
+      await expect(service.awaitTaskRunnable('t1')).resolves.toBe(false);
     });
   });
 });

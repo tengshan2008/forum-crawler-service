@@ -78,7 +78,7 @@ describe('schedulerService 定时调度（D3 状态机收敛到 taskService）',
 
     expect(Task.find).toHaveBeenCalledWith({
       'schedule.enabled': true,
-      status: { $ne: 'running' },
+      status: { $nin: ['running', 'paused'] },
     });
     expect(addCrawlerTask).toHaveBeenCalledTimes(2);
   });

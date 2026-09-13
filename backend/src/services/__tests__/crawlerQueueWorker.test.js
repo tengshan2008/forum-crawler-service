@@ -1,4 +1,5 @@
 jest.mock('../../services/taskService', () => ({
+  awaitTaskRunnable: jest.fn().mockResolvedValue(true),
   markRunning: jest.fn(),
   markCompleted: jest.fn(),
   markFailed: jest.fn(),
@@ -27,10 +28,14 @@ const makeJob = (overrides = {}) => ({
   progress: jest.fn(),
 });
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  // clearAllMocks 不重置实现：闸门用例可能临时改为 false，每个用例前恢复默认放行
+  taskService.awaitTaskRunnable.mockResolvedValue(true);
+});
 
 describe('crawlerQueueWorker 队列消费（B1/D3 状态机收敛）', () => {
-  it('成功路径：markRunning → executeCrawler → markCompleted → progress(100)', async () => {
+  it('成功路径：启动闸门 → markRunning → executeCrawler → markCompleted → progress(100)', async () => {
     const job = makeJob();
     const crawlResult = { title: '标题', crawled_posts: 2, total_posts: 3 };
     executeCrawler.mockResolvedValue(crawlResult);
@@ -38,6 +43,7 @@ describe('crawlerQueueWorker 队列消费（B1/D3 状态机收敛）', () => {
 
     const result = await processCrawlerJob(job);
 
+    expect(taskService.awaitTaskRunnable).toHaveBeenCalledWith('t1');
     expect(taskService.markRunning).toHaveBeenCalledWith('t1');
     expect(executeCrawler).toHaveBeenCalledWith('t1', 'http://post/1', 'novel', { maxPages: 3 }, 'single');
     expect(taskService.markCompleted).toHaveBeenCalledWith('t1', crawlResult);
@@ -51,6 +57,19 @@ describe('crawlerQueueWorker 队列消费（B1/D3 状态机收敛）', () => {
       'status',
       expect.objectContaining({ status: 'completed', progress: 100 })
     );
+  });
+
+  it('启动闸门返回 false（任务仍暂停/已删除/已终态）：安静结束 job，不做任何状态流转', async () => {
+    const job = makeJob();
+    taskService.awaitTaskRunnable.mockResolvedValue(false);
+
+    const result = await processCrawlerJob(job);
+
+    expect(result).toBeNull();
+    expect(taskService.markRunning).not.toHaveBeenCalled();
+    expect(executeCrawler).not.toHaveBeenCalled();
+    expect(taskService.markCompleted).not.toHaveBeenCalled();
+    expect(taskService.markFailed).not.toHaveBeenCalled();
   });
 
   it('执行失败：markFailed 记录后向 Bull 重抛（保留重试/退避机制）', async () => {

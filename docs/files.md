@@ -68,7 +68,8 @@ crawler/
 │   ├── text_utils.py                         # 文本清洗/内容哈希/乱码检测
 │   ├── url_utils.py                          # URL 提取与 meta 跳转解析
 │   ├── dedup.py                              # 去重判定纯函数（v2.2.0 下沉）
-│   └── post_builder.py                       # 媒体处理/文档构建/upsert 载荷（v2.2.0 下沉）
+│   ├── post_builder.py                       # 媒体处理/文档构建/upsert 载荷（v2.2.0 下沉）
+│   └── pause_gate.py                         # 暂停闸门纯逻辑（v2.17.0：轮询 paused 状态阻塞/恢复）
 ├── logs/                                     # 任务日志落盘 task_<task_id>.log（已被 .gitignore 覆盖）
 └── tests/                                    # Pytest 单元测试
 ```

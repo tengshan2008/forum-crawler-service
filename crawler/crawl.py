@@ -48,12 +48,16 @@ from bson import ObjectId
 from image_downloader import download_images, initialize_image_dirs
 from lib.dedup import evaluate_duplicate
 from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates, dedupe_by_source_url
+from lib.pause_gate import wait_while_paused
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 
 # 批量写库缓冲大小（C2）：攒够一批后 bulk_write，减少逐条 update_one 的网络往返
 POST_WRITE_BATCH_SIZE = 20
+
+# 暂停闸门轮询间隔（秒）：任务被暂停后，爬虫在帖子/分页边界阻塞，按此间隔轮询恢复状态
+PAUSE_POLL_INTERVAL = 3
 
 
 class _Tee:
@@ -171,7 +175,37 @@ class ForumCrawler:
             print(f"⚠ 获取任务用户信息失败: {e}", file=sys.stderr, flush=True)
             import traceback
             traceback.print_exc()
-    
+
+    def _read_pause_state(self):
+        """暂停闸门状态读取：返回 (exists, status)
+        - 任务不存在：(False, None)
+        - 读取异常：(True, None)——入口按非暂停放行，等待期间下周期复查
+        """
+        try:
+            task = self.db['crawlertasks'].find_one(
+                {'_id': ObjectId(self.task_id)}, {'status': 1}
+            )
+            if task is None:
+                return False, None
+            return True, task.get('status')
+        except Exception as e:
+            print(f"⚠ 读取任务暂停状态失败: {e}", file=sys.stderr, flush=True)
+            return True, None
+
+    def wait_if_paused(self):
+        """暂停闸门：任务 paused 时在当前安全边界（帖子/分页之间）挂起，
+        恢复（running）后继续。阻塞期间不发起任何抓取请求；纯逻辑见 lib/pause_gate.py。
+        PAUSED:/RESUMED: 行同时供后端 crawlerExecutor 冻结/恢复执行超时计时。
+        """
+        wait_while_paused(
+            self._read_pause_state,
+            poll_interval=PAUSE_POLL_INTERVAL,
+            on_pause=lambda: print(
+                "⏸ PAUSED:任务已暂停，爬虫在安全边界挂起，等待恢复...", flush=True
+            ),
+            on_resume=lambda: print("▶ RESUMED:暂停已解除，继续采集", flush=True),
+        )
+
     def _calculate_content_hash(self, content):
         """计算内容的 MD5 哈希值用于去重（实现见 lib/text_utils.calculate_content_hash）"""
         return calculate_content_hash(content)
@@ -622,6 +656,8 @@ class ForumCrawler:
                 # 限制最大遍历页数，避免过多请求
                 max_crawl_pages = min(total_pages, 1000)
                 for page_num in range(2, max_crawl_pages + 1):
+                    # 暂停闸门：单帖多分页遍历前的安全边界
+                    self.wait_if_paused()
                     # 构建分页URL
                     page_url = self.build_pagination_url(url, page_num)
                     if not page_url:
@@ -999,7 +1035,10 @@ class ForumCrawler:
             print(f"Type: {task_type}", flush=True)
             print(f"Max Pages: {max_pages}", flush=True)
             print(f"Start Page: {start_page}", flush=True)
-            
+
+            # 启动闸门：job 因服务重启被 Bull 重新派发、或启动与暂停并发时，任务可能已是 paused
+            self.wait_if_paused()
+
             # 根据参数直接使用is_batch，而不是通过URL判断
             is_batch = (crawl_type == 'batch')
             
@@ -1058,6 +1097,8 @@ class ForumCrawler:
                 # 循环采集多页，直到没有下一页或达到最大页数
                 pages_crawled = 1  # 已经爬取的页数（包括起始页）
                 while pages_crawled < max_pages:
+                    # 暂停闸门：翻页前的安全边界
+                    self.wait_if_paused()
                     # 检查当前页是否有下一页
                     has_next = self.has_next_page(html, current_page)
                     
@@ -1103,6 +1144,8 @@ class ForumCrawler:
                 
                 # 爬取每个帖子
                 for i, post_url in enumerate(unique_post_links, 1):
+                    # 暂停闸门：每个帖子处理前的安全边界
+                    self.wait_if_paused()
                     print(f"\n🔍 正在处理帖子 {i}/{total_posts}: {post_url}", flush=True)
                     
                     # 先进行快速的URL检查

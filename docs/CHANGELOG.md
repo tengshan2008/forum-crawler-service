@@ -1,5 +1,15 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.16.2 - 生产白屏热修（antd icons 拆包循环依赖）
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **现象**：生产环境（192.168.50.50:3000，docker nginx 产出 dist）打开即纯白屏，`#root` 为空；dev 环境一切正常
+- **根因**：v2.16.0 的 `manualChunks` 把 `@ant-design/icons` 拆成独立 `antd-icons` chunk，而 `@ant-design/colors` 未匹配任何规则落在 `antd` chunk，形成 antd ⇄ antd-icons 循环 chunk 依赖。icons 模块**顶层**执行的 `setTwoToneColor(blue.primary)` 抢在 colors 模块初始化之前运行 → `TypeError: Cannot read properties of undefined (reading 'primary')`，React 从未挂载。`vite build` 对 chunk 求值顺序问题零报错，dev server 不做 Rollup 分包所以本地完全无感（v2.12.2「构建通过≠运行正常」教训的 chunk 版重现）
+- **修复**：vite.config.js 将 `@ant-design/*`（icons/colors/cssinjs 等）整体并入 `antd` chunk，依赖图收敛为单向 index → antd → react-vendor；antd chunk 1.19MB（gzip 377KB）仍独立长效缓存
+- **验证**：`vite build` 通过（antd-icons chunk 消失）；`vite preview` 承载真实产物浏览器冒烟：Console 零报错、登录页正常渲染、#root 非空、`reading 'primary'` 未复现
+- **规范沉淀**：凡涉及 manualChunks 分包调整，必须 `vite preview` 起生产产物做真实浏览器冒烟，仅跑 build 或 dev server 均无法暴露 chunk 求值顺序问题
+
 ## 版本 2.16.1 - 存量帖子 contentLength 回填与去重日志修正
 **发布日期**: 2026-09-13
 **状态**: ✅ 已完成

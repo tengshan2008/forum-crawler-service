@@ -1,6 +1,6 @@
 const Task = require('../models/Task');
 const AppError = require('../utils/AppError');
-const { addCrawlerTask, removeQueuedTask } = require('./crawlerQueue');
+const { addCrawlerTask, removeQueuedTask, findActiveJobForTask } = require('./crawlerQueue');
 const taskEventBus = require('./taskEventBus');
 const fs = require('fs').promises;
 const path = require('path');
@@ -239,15 +239,70 @@ async function startTask(taskId, user) {
 
 async function pauseTask(taskId, user) {
   const { task } = await findAndAuthorize(taskId, user, { zh: '暂停', en: 'pause' });
+
+  // 状态机：只有执行中/等待中的任务可以暂停
+  if (task.status !== 'running' && task.status !== 'pending') {
+    throw new AppError('只有执行中或等待中的任务可以暂停', 400);
+  }
+
+  if (task.status === 'pending') {
+    // 排队中（尚未被 worker 领取）：先移出 waiting/delayed 队列，
+    // 否则 job 被领取时 markRunning 会把 paused 覆盖回 running。
+    // 返回 false 可能是 job 恰好在此刻转为 active——无需报错，
+    // active 的爬虫会在暂停闸门（crawl.py wait_if_paused）上挂起。
+    await removeQueuedTask(taskId).catch((err) => {
+      console.error(`[任务暂停] 移出等待队列失败（继续按执行中暂停处理）: ${err.message}`);
+    });
+  }
+
   task.status = 'paused';
   await task.save();
+
+  // running 任务：爬虫进程在帖子/分页边界检测到 paused 后自行挂起（无需后端发信号）
+  taskEventBus.publish(taskId, 'status', { status: 'paused' }).catch(() => {});
   return task;
 }
 
 async function resumeTask(taskId, user) {
   const { task } = await findAndAuthorize(taskId, user, { zh: '恢复', en: 'resume' });
+
+  // 状态机：只有已暂停的任务可以恢复
+  if (task.status !== 'paused') {
+    throw new AppError('只有已暂停的任务可以恢复', 400);
+  }
+
+  // 判断爬虫进程是否还活着：
+  // - 有 active job：进程正阻塞在暂停闸门上，置回 running 后闸门（≤3s 轮询）自动放行
+  // - 无 active job：暂停的是排队 job（已移出队列），或进程随旧执行节点退出，需要重新入队
+  const activeJob = await findActiveJobForTask(taskId).catch((err) => {
+    console.error(`[任务恢复] 查询 active job 失败，按重新入队处理: ${err.message}`);
+    return null;
+  });
+
   task.status = 'running';
+  if (!activeJob) {
+    // 重新入队等价于一次新的执行：重置本轮进度与计数
+    task.startTime = new Date();
+    task.progress = 0;
+    task.crawledItems = 0;
+  }
   await task.save();
+
+  if (!activeJob) {
+    try {
+      const url = task.crawlType === 'single' ? task.forumUrl : task.sectionUrl;
+      await addCrawlerTask(task._id.toString(), url, task.taskType, task.config, task.crawlType);
+      console.log(`[任务恢复] 暂停任务已重新入队: ${task._id}`);
+    } catch (error) {
+      console.error(`[任务恢复] 重新入队失败:`, error);
+      task.status = 'failed';
+      appendErrorLog(task, { timestamp: new Date(), message: error.message });
+      await task.save();
+      throw new AppError(`任务恢复失败：${error.message}`, 500);
+    }
+  }
+
+  taskEventBus.publish(taskId, 'status', { status: 'running' }).catch(() => {});
   return task;
 }
 
@@ -291,9 +346,43 @@ async function markCompleted(taskId, result = {}) {
   task.progress = 100;
   task.crawledItems = result.crawled_posts || 1;
   task.totalItems = result.total_posts || 1;
+  // 跳过/失败统计与明细原先由 crawlerExecutor 直接写库；状态写入收敛到 taskService 后随结果一起落库
+  if (result.skipped_posts !== undefined) {
+    task.skippedItems = result.skipped_posts;
+  }
+  if (result.failed_posts !== undefined) {
+    task.failedItems = result.failed_posts;
+  }
+  if (Array.isArray(result.skip_details)) {
+    task.skipReasons = result.skip_details;
+  }
   task.endTime = new Date();
   await task.save();
   return task;
+}
+
+// worker 领取 job 后的启动闸门：
+// 服务重启 / Bull stalled 重投递时，用户可能仍把任务保持在 paused——
+// 此时绝不能 markRunning 覆盖暂停意图，轮询等待用户恢复后再执行。
+// 返回 true=可以执行；false=放弃该 job（任务已删除，或已处于终态，不做任何状态写入）。
+async function awaitTaskRunnable(taskId, { pollInterval = 2000 } = {}) {
+  for (;;) {
+    const task = await Task.findById(taskId);
+    if (!task) {
+      console.warn(`[爬虫队列] 任务 ${taskId} 已不存在，放弃执行该 job`);
+      return false;
+    }
+    if (task.status === 'paused') {
+      console.log(`[爬虫队列] 任务 ${taskId} 处于暂停状态，worker 等待恢复...`);
+      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      continue;
+    }
+    if (task.status === 'completed' || task.status === 'failed') {
+      console.warn(`[爬虫队列] 任务 ${taskId} 已处于终态 ${task.status}，跳过该 job`);
+      return false;
+    }
+    return true;
+  }
 }
 
 // 执行失败：追加（而非覆盖）errorLog
@@ -402,6 +491,7 @@ module.exports = {
   markCompleted,
   markFailed,
   markScheduledRun,
+  awaitTaskRunnable,
   cancelTask,
   getTaskLogs,
 };

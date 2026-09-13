@@ -35,10 +35,11 @@ class SchedulerService {
     
     const now = new Date();
     
-    // 查找所有启用了定时采集且未在运行的任务
+    // 查找所有启用了定时采集且未在运行/未被用户暂停的任务
+    // paused 是用户显式持有的状态，调度器不得自动拉起（恢复只能由用户 resume）
     const scheduledTasks = await Task.find({
       'schedule.enabled': true,
-      status: { $ne: 'running' } // 只处理非运行状态的任务
+      status: { $nin: ['running', 'paused'] }
     });
     
     if (scheduledTasks.length === 0) {
