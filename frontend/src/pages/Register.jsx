@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Form, Input, Button, Card, Typography, message, Divider } from 'antd';
+import { Form, Input, Button, Card, Typography, Divider } from 'antd';
 import { LockOutlined, UserOutlined, MailOutlined } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { register } from '../services/authService';
 
+import { message } from '../utils/antdApp';
 const { Title, Text } = Typography;
 
 const Register = () => {

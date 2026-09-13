@@ -1,22 +1,34 @@
-import React from 'react';
-import { Layout, Menu, Button, ConfigProvider, Grid, Drawer, Tooltip, Result, theme as antdTheme } from 'antd';
+import React, { Suspense, lazy } from 'react';
+import { Layout, Menu, Button, ConfigProvider, Grid, Drawer, Tooltip, Result, Spin, App as AntdApp, theme as antdTheme } from 'antd';
 import { BrowserRouter as Router, Routes, Route, Link, useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { FileTextOutlined, PictureOutlined, SettingOutlined, LogoutOutlined, DashboardOutlined, TeamOutlined, MenuOutlined, BulbOutlined, BulbFilled, StarOutlined } from '@ant-design/icons';
 import zhCN from 'antd/locale/zh_CN';
-import TaskList from './pages/TaskList';
-import PostPreview from './pages/PostPreview';
-import BrowsePage from './pages/BrowsePage';
-import CollectionsPage from './pages/CollectionsPage';
-import Settings from './pages/Settings';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import AdminDashboard from './pages/AdminDashboard';
-import AdminConfigPanel from './pages/AdminConfigPanel';
-import AdminUserManagement from './pages/AdminUserManagement';
 import PrivateRoute from './components/PrivateRoute';
+import AntdAppBridge from './components/AntdAppBridge';
 import { getCurrentUser, logout } from './services/authService';
 import { useThemeMode } from './hooks/useThemeMode';
 import './App.css';
+
+// 业务页面全部懒加载：主包只保留外壳/鉴权/主题，首屏体积显著下降（v2.16.0 包体积优化）
+const TaskList = lazy(() => import('./pages/TaskList'));
+const PostPreview = lazy(() => import('./pages/PostPreview'));
+const BrowsePage = lazy(() => import('./pages/BrowsePage'));
+const CollectionsPage = lazy(() => import('./pages/CollectionsPage'));
+const Settings = lazy(() => import('./pages/Settings'));
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
+const AdminConfigPanel = lazy(() => import('./pages/AdminConfigPanel'));
+const AdminUserManagement = lazy(() => import('./pages/AdminUserManagement'));
+
+// 路由级懒加载兜底（Spin tip 仅在嵌套/全屏模式生效，这里用嵌套占位）
+const RouteLoading = () => (
+  <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+    <Spin size='large'>
+      <div style={{ width: 120, height: 32 }} />
+    </Spin>
+  </div>
+);
 
 const { Header, Sider, Content } = Layout;
 const { useBreakpoint } = Grid;
@@ -214,26 +226,31 @@ function App() {
         },
       }}
     >
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route element={<PrivateRoute />}>
-            <Route element={<LayoutContent themeMode={mode} onToggleTheme={toggleMode} />}>
-              <Route path="/" element={<TaskList />} />
-              <Route path="/browse" element={<BrowsePage />} />
-              <Route path="/collections" element={<CollectionsPage />} />
-              <Route path="/preview/:taskId" element={<PostPreview />} />
-              <Route path="/settings" element={<Settings />} />
-              {/* 系统管理路由 */}
-              <Route path="/admin/dashboard" element={<AdminDashboard />} />
-              <Route path="/admin/config" element={<AdminConfigPanel />} />
-              <Route path="/admin/users" element={<AdminUserManagement />} />
+      <AntdApp>
+        <AntdAppBridge />
+      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <Suspense fallback={<RouteLoading />}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            <Route element={<PrivateRoute />}>
+              <Route element={<LayoutContent themeMode={mode} onToggleTheme={toggleMode} />}>
+                <Route path="/" element={<TaskList />} />
+                <Route path="/browse" element={<BrowsePage />} />
+                <Route path="/collections" element={<CollectionsPage />} />
+                <Route path="/preview/:taskId" element={<PostPreview />} />
+                <Route path="/settings" element={<Settings />} />
+                {/* 系统管理路由 */}
+                <Route path="/admin/dashboard" element={<AdminDashboard />} />
+                <Route path="/admin/config" element={<AdminConfigPanel />} />
+                <Route path="/admin/users" element={<AdminUserManagement />} />
+              </Route>
             </Route>
-          </Route>
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </Suspense>
       </Router>
+      </AntdApp>
     </ConfigProvider>
   );
 }

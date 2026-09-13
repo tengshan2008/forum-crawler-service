@@ -1,22 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Row,
-  Col,
-  Card,
-  List,
-  Button,
-  Empty,
-  Spin,
-  Modal,
-  Form,
-  Input,
-  Popconfirm,
-  message,
-  Typography,
-  Tag,
-  Tooltip,
-  Image,
-} from 'antd';
+  Row, Col, Card, List, Button, Empty, Spin, Modal, Form, Input, Popconfirm, Typography, Tag, Tooltip, Image } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -32,6 +16,7 @@ import { browseApi } from '../services/api';
 import VisibilityTag from '../utils/postMeta';
 import './CollectionsPage.css';
 
+import { message } from '../utils/antdApp';
 const { Title, Text, Paragraph } = Typography;
 
 const POST_TYPE_META = {
@@ -250,7 +235,9 @@ const CollectionsPage = () => {
               />
             ) : detailLoading ? (
               <div style={{ textAlign: 'center', padding: '60px 0' }}>
-                <Spin tip='加载中...' />
+                <Spin tip='加载中...'>
+                  <div style={{ minHeight: 80, minWidth: 120 }} />
+                </Spin>
               </div>
             ) : !detail ? null : (detail.items || []).length === 0 ? (
               <Empty description={`「${detail.name}」还是空的`} style={{ margin: '60px 0' }}>

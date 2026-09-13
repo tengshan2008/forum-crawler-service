@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
-import { Modal, Form, Input, Radio, Select, message } from 'antd';
+import { Modal, Form, Input, Radio, Select } from 'antd';
 import { postApi } from '../services/api';
 import { VISIBILITY_OPTIONS } from '../utils/postMeta';
 
+import { message } from '../utils/antdApp';
 // 表单值 → PUT 请求载荷（标题 trim 兜底、标签去空去重）
 export function buildPostUpdatePayload(values, post) {
   return {

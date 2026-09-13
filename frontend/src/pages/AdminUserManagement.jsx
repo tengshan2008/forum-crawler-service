@@ -1,17 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Table,
-  Button,
-  Space,
-  Tag,
-  Modal,
-  Form,
-  Input,
-  Select,
-  message,
-  Popconfirm,
-} from 'antd';
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, Popconfirm } from 'antd';
 import {
   EditOutlined,
   DeleteOutlined,
@@ -21,6 +9,7 @@ import {
 import api from '../services/api';
 import './AdminUserManagement.css';
 
+import { message } from '../utils/antdApp';
 const AdminUserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);

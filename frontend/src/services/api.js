@@ -1,6 +1,5 @@
 import axios from 'axios';
-import { message } from 'antd';
-
+import { message } from '../utils/antdApp';
 // 动态确定 API 基础 URL
 // 在浏览器中，相对 URL 会基于当前位置
 // Nginx 会在 /api 路径下代理到后端

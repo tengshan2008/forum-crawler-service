@@ -1,31 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Row,
-  Col,
-  Card,
-  Space,
-  Button,
-  Input,
-  Select,
-  DatePicker,
-  Spin,
-  Pagination,
-  message,
-  Empty,
-  Tooltip,
-  Drawer,
-  Tag,
-} from 'antd';
-import {
-  DownloadOutlined,
-  ShareAltOutlined,
-  HeartOutlined,
-  HeartFilled,
-  BookOutlined,
-  DeleteOutlined,
-  EditOutlined,
-} from '@ant-design/icons';
-import { Modal } from 'antd';
+import { Row, Col, Card, Space, Button, Input, Select, DatePicker, Spin, Pagination, Empty, Tooltip, Drawer, Tag } from 'antd';
+import { DownloadOutlined, ShareAltOutlined, HeartOutlined, HeartFilled, BookOutlined, DeleteOutlined, EditOutlined, } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { useSearchParams } from 'react-router-dom';
 import { browseApi, taskApi } from '../services/api';
@@ -35,6 +10,7 @@ import PostEditModal from './PostEditModal';
 import VisibilityTag from '../utils/postMeta';
 import './NovelBrowser.css';
 
+import { message, modal } from '../utils/antdApp';
 const { RangePicker } = DatePicker;
 
 const DEFAULT_FILTERS = {
@@ -270,7 +246,7 @@ const NovelBrowser = ({ filtersVisible = true }) => {
   };
 
   const handleDelete = (novel) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: `确定要删除小说《${novel.title}》吗？此操作不可撤销。`,
       okText: '确认删除',
@@ -301,7 +277,9 @@ const NovelBrowser = ({ filtersVisible = true }) => {
   if (loading && novels.length === 0) {
     return (
       <div className='novel-browser-loading'>
-        <Spin size='large' tip='加载中...' />
+        <Spin size='large' tip='加载中...'>
+          <div style={{ minHeight: 120 }} />
+        </Spin>
       </div>
     );
   }
@@ -573,11 +551,13 @@ const NovelBrowser = ({ filtersVisible = true }) => {
         }}
         open={readerDrawerVisible}
         width='80%'
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         {readerLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
-            <Spin size='large' tip='正在加载小说内容...' />
+            <Spin size='large' tip='正在加载小说内容...'>
+              <div style={{ width: 160, height: 60 }} />
+            </Spin>
           </div>
         ) : selectedNovel ? (
           // key 绑定小说 id：切换读物时整体重挂，阅读器进度按 id 独立恢复

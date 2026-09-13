@@ -1,20 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Form,
-  Button,
-  Input,
-  InputNumber,
-  Select,
-  Switch,
-  Tabs,
-  Table,
-  Modal,
-  message,
-  Space,
-  Tag,
-  Tooltip,
-} from 'antd';
+import { Card, Form, Button, Input, InputNumber, Select, Switch, Tabs, Table, Modal, Space, Tag, Tooltip } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -24,6 +9,7 @@ import {
 import api from '../services/api';
 import './AdminConfigPanel.css';
 
+import { message } from '../utils/antdApp';
 const AdminConfigPanel = () => {
   const [config, setConfig] = useState(null);
   const [loading, setLoading] = useState(false);

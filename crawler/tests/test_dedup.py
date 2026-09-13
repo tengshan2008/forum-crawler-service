@@ -68,3 +68,25 @@ def test_无长度信息且无哈希时保守跳过():
 def test_url_存在且无任何比对信息时保守跳过():
     result = evaluate_duplicate({'content': ''}, None)
     assert result == {'exists': True, 'reason': 'same_url', 'message': '相同URL的帖子已存在'}
+
+
+def test_已有contentLength且哈希相同时不误印无长度警告(capsys):
+    """已有 contentLength 的记录走哈希快判，不得误印「无长度信息（旧数据）」"""
+    url_post = {'contentLength': 12345, 'contentHash': 'h1'}
+    result = evaluate_duplicate(url_post, None, content_hash='h1', content_length=12345)
+    assert result == {'exists': True, 'reason': 'duplicate', 'message': '帖子已存在（相同URL和内容）'}
+    assert '无长度信息' not in capsys.readouterr().out
+
+
+def test_已有contentLength且哈希不同时保守跳过且不误印警告(capsys):
+    url_post = {'contentLength': 12345, 'contentHash': 'h1'}
+    result = evaluate_duplicate(url_post, None, content_hash='h2', content_length=54321)
+    assert result == {'exists': True, 'reason': 'same_url', 'message': '相同URL的帖子已存在'}
+    assert '无长度信息' not in capsys.readouterr().out
+
+
+def test_无长度且无正文时仍提示旧数据(capsys):
+    """既无 contentLength 也无正文可推算，才是真正需要警告的旧数据"""
+    result = evaluate_duplicate({'content': ''}, None, content_hash='h1', content_length=50)
+    assert result == {'exists': True, 'reason': 'same_url', 'message': '相同URL的帖子已存在'}
+    assert '无长度信息（旧数据）' in capsys.readouterr().out

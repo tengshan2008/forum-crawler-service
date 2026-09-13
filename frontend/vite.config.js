@@ -35,6 +35,42 @@ export default defineConfig({
     host: true,
     port: 3000,
   },
+  build: {
+    // 分包后首屏主 chunk 远低于 500KB；antd 整库 chunk 单独缓存，阈值按其实际体积放宽
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // 函数形式：对象形式无法命中 react-dom/client、@rc-component 等子路径，
+        // 曾导致 react-dom 被打进 antd chunk
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          // React 运行时（含 react-dom/client、scheduler）与路由
+          if (
+            id.includes('/react/') ||
+            id.includes('/react-dom/') ||
+            id.includes('/scheduler/') ||
+            id.includes('react-router')
+          ) {
+            return 'react-vendor';
+          }
+          // 图标库体量大且独立迭代，单独成包
+          if (id.includes('@ant-design/icons')) return 'antd-icons';
+          // antd 组件库本体、rc-* 底层组件、dayjs（保持单实例）
+          if (
+            id.includes('/antd/') ||
+            id.includes('/@rc-component/') ||
+            id.includes('/rc-') ||
+            id.includes('/dayjs/')
+          ) {
+            return 'antd';
+          }
+          // 其余 node_modules（如 @antv 图表库）不主动归组：
+          // 仅 AdminDashboard 懒加载页面引用，Rollup 会自然收入该路由 chunk
+          return undefined;
+        },
+      },
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

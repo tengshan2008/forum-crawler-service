@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, message, Tooltip, Pagination, Select } from 'antd';
+import { Card, Image, Tag, Spin, Empty, Row, Col, Button, Space, Collapse, Tooltip, Pagination, Select } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, CopyOutlined } from '@ant-design/icons';
 import { postApi, taskApi } from '../services/api';
 import dayjs from 'dayjs';
 
+import { message } from '../utils/antdApp';
 const PostPreview = () => {
   const { taskId } = useParams();
   const navigate = useNavigate();

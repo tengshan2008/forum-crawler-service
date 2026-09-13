@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { message } from 'antd';
 import { taskApi } from '../services/api';
-
+import { message } from '../utils/antdApp';
 // 活动状态：执行中/排队中的任务需要定时刷新进度与状态
 const ACTIVE_STATUSES = ['running', 'pending'];
 const POLL_INTERVAL = 5000;

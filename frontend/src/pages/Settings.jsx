@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Card, Form, Input, Button, Row, Col, Divider, Space, Alert, Modal } from 'antd';
+import { Card, Form, Input, Button, Row, Col, Divider, Space, Alert } from 'antd';
 import { LockOutlined, UserOutlined, MailOutlined, SaveOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { getCurrentUser, updateProfile, changePassword } from '../services/authService';
 import './Settings.css';
 
+import { message, modal } from '../utils/antdApp';
 const Settings = () => {
   const user = getCurrentUser();
   const [loading, setLoading] = useState(false);
@@ -55,7 +56,7 @@ const Settings = () => {
       return;
     }
 
-    Modal.confirm({
+    modal.confirm({
       title: '确认更改密码',
       icon: <ExclamationCircleOutlined />,
       content: '修改后需要重新登录，是否继续？',

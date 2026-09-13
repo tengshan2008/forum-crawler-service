@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Modal, Checkbox, Input, Button, Empty, Space, Typography, message } from 'antd';
+import { Modal, Checkbox, Input, Button, Empty, Space, Typography } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { browseApi } from '../services/api';
 
+import { message } from '../utils/antdApp';
 const { Text } = Typography;
 
 /**

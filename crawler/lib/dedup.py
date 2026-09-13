@@ -52,9 +52,10 @@ def evaluate_duplicate(url_post, content_duplicate, content_hash=None, content_l
                         'reason': 'shorter_content',
                         'message': f'新内容更短（旧：{existing_length}字 → 新：{content_length}字），保留原内容'
                     }
-            else:
-                # 现有记录没有长度信息，可能是旧数据
+            elif existing_length is None:
+                # 既无 contentLength 也无正文可推算长度，才是真正的旧数据
                 print(f"⚠ 现有记录无长度信息（旧数据），新内容长度：{content_length} 字符，将继续用内容哈希进行检查", flush=True)
+            # 已有 contentLength 的记录无需警告，直接进入下方内容哈希检查
 
         # 进行内容哈希检查
         if content_hash:

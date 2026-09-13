@@ -50,7 +50,8 @@ backend/
     ├── create-admin.js                       # 管理员账号创建脚本
     ├── migrateTasksUserIds.js                # 存量任务 userId 回填（归属首个 admin，幂等）
     ├── migrateCollectionOwners.js            # 存量收藏夹 userId 回填（幂等，v2.12.0）
-    └── migratePostsUserIds.js                # 存量帖子 userId 回填（幂等，v2.13.0 内容数据隔离前置）
+    ├── migratePostsUserIds.js                # 存量帖子 userId 回填（幂等，v2.13.0 内容数据隔离前置）
+    └── backfillContentLength.js              # 存量帖子 contentLength 回填（$strLenCP 服务端计算，幂等+守卫更新，v2.16.1）
 ```
 
 ### 爬虫文件 (Crawler - Python)

@@ -1,11 +1,12 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, message, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider, Grid, Pagination, Empty, Spin } from 'antd';
+import { Table, Button, Space, Modal, Form, Input, Select, Tag, Popconfirm, Tooltip, Checkbox, InputNumber, Progress, Dropdown, Statistic, Row, Col, Card, Radio, Divider, Grid, Pagination, Empty, Spin } from 'antd';
 import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, PauseOutlined, EyeOutlined, StopOutlined, RedoOutlined, FileTextOutlined, ReloadOutlined, MoreOutlined, CheckCircleOutlined, CloseCircleOutlined, SyncOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { taskApi } from '../services/api';
 import { useTasks } from '../hooks/useTasks';
 import dayjs from 'dayjs';
 
+import { message, modal } from '../utils/antdApp';
 // 任务状态展示映射：表格与日志弹窗共用，保证中文标签口径一致
 const STATUS_META = {
   pending: { label: '等待中', color: 'default' },
@@ -125,7 +126,7 @@ const TaskList = () => {
 
   // 操作列「更多」下拉中的删除：Modal 二次确认（Popconfirm 无法包裹下拉菜单项）
   const handleDeleteConfirm = (task) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除该任务？',
       content: task.name ? `任务：${task.name}` : '删除后不可恢复',
       okText: '删除',

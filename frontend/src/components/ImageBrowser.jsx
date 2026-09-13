@@ -1,23 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Row,
-  Col,
-  Card,
-  Image,
-  Space,
-  Button,
-  Input,
-  Select,
-  DatePicker,
-  Spin,
-  Pagination,
-  message,
-  Empty,
-  Modal,
-  Tooltip,
-  Typography,
-  Tag,
-} from 'antd';
+  Row, Col, Card, Image, Space, Button, Input, Select, DatePicker, Spin, Pagination, Empty, Tooltip, Typography, Tag, Modal } from 'antd';
 import {
   DownloadOutlined,
   ShareAltOutlined,
@@ -40,6 +23,7 @@ import CollectionPickerModal from './CollectionPickerModal';
 import PostEditModal from './PostEditModal';
 import './ImageBrowser.css';
 
+import { message, modal } from '../utils/antdApp';
 const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
@@ -363,7 +347,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   };
 
   const handleDeleteImage = (postId, imageUrl) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: '确定要删除这张图片吗？此操作不可撤销。',
       okText: '确认删除',
@@ -394,7 +378,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   };
 
   const handleDeletePost = (postId, title) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: `确定要删除这个网页及其所有图片吗？《${title}》此操作不可撤销。`,
       okText: '确认删除',
@@ -467,7 +451,9 @@ const ImageBrowser = ({ filtersVisible = true }) => {
   if (loading && imageGroups.length === 0) {
     return (
       <div className='image-browser-loading'>
-        <Spin size='large' tip='加载中...' />
+        <Spin size='large' tip='加载中...'>
+          <div style={{ minHeight: 120 }} />
+        </Spin>
       </div>
     );
   }

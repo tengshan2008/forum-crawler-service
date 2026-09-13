@@ -1,18 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Card,
-  Row,
-  Col,
-  Statistic,
-  Table,
-  Button,
-  Space,
-  Tag,
-  Progress,
-  message,
-  Spin,
-  Alert,
-} from 'antd';
+import { Card, Row, Col, Statistic, Table, Button, Space, Tag, Progress, Spin, Alert } from 'antd';
 import {
   ReloadOutlined,
   LineChartOutlined,
@@ -33,6 +20,7 @@ import {
 import api from '../services/api';
 import './AdminDashboard.css';
 
+import { message } from '../utils/antdApp';
 const AdminDashboard = () => {
   const [status, setStatus] = useState(null);
   const [metrics, setMetrics] = useState([]);
@@ -390,7 +378,7 @@ const AdminDashboard = () => {
           <Table
             columns={alertColumns}
             dataSource={alerts}
-            rowKey={(record, index) => index}
+            rowKey='_rowKey'
             pagination={false}
           />
         </Card>

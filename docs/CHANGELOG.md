@@ -1,5 +1,65 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.16.1 - 存量帖子 contentLength 回填与去重日志修正
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：小说重爬时频繁出现「现有记录无长度信息（旧数据）…帖子已存在（原因: same_url），跳过」。排查发现 8006 帖中 7174 条（novel 6801 / image 373，全部有正文）缺 `contentLength`——该字段是去重长度快判依据，缺失导致旧帖只能走内容哈希/保守跳过路径
+- **存量回填（backend/scripts/backfillContentLength.js）**：
+  - 长度口径与爬虫完全一致：crawl.py 写入的是 Python `len(content)`（Unicode 码点数），MongoDB `$strLenCP` 同为码点计数，服务端聚合计算、游标只回传 `{_id, len}`，不传输/不修改 2.75GB 正文
+  - 幂等（只处理缺失/为 null 的文档）+ 并发守卫（每条 UpdateOne 带「仍缺长度」过滤条件，不覆盖运行中爬虫刚写入的值）+ `--dry-run`/`--apply` 双模式；500 条一批 bulk_write
+  - 真库执行：扫描约 2 分钟，累计回填 7174 条（788,913,669 字符）； pymongo 在本环境握手挂起（2.75GB 大集合），故走 Node/mongoose 与既有迁移脚本同路径
+- **去重日志修正（crawler/lib/dedup.py）**：
+  - 既有缺陷：长度比较逻辑嵌在「旧记录无 contentLength」兜底分支内，`else` 分支同时覆盖了**已有 contentLength 的正常记录**，导致即使有长度也误印「无长度信息（旧数据）」警告
+  - 改为 `elif existing_length is None`：仅「既无 contentLength 也无正文可推算」的真旧数据才警告；已有长度的记录静默进入内容哈希检查。**返回值语义零变更**（「双方都有长度只信哈希」等原行为由既有测试锁定）
+- **验证**：crawler pytest 88 例全绿（test_dedup 新增 3 例用 capsys 锁定日志分支：有长度+哈希相同→duplicate 无警告 / 有长度+哈希不同→same_url 无警告 / 真无长度→仍警告）
+- **文档**：docs/files.md 登记 backfillContentLength.js
+
+## 版本 2.16.0 - 第四批体验与工程优化（暗色弹层修复 / 弃用清理 / 路由懒加载分包 / 数据态复验）
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：第二批遗留的"暗色模式下全局提示白底"收口；冒烟控制台 5 类警告清理；主包 1.88MB 体积优化；Mongo 恢复后对第三批收藏夹/阅读器做真实数据态复验
+- **暗色全局提示/弹窗修复（核心）**：
+  - antd v5 静态 `message.*` / `Modal.confirm` 走独立 React 根，不消费 ConfigProvider 暗色算法（暗色下白底）。新增 `utils/antdApp.js` 主题感知 Proxy 入口 + `components/AntdAppBridge.jsx`（在 antd `<App>` 内用 `App.useApp()` 注册实例，桥接前回退静态方法不丢调用）
+  - App.jsx 顶层增加 `<App>` 包裹；全量 16 个文件（96 处 message、4 处 Modal.confirm）机械迁移到 `antdApp`；hooks/services 等非组件层同样受益。冒烟实测暗色 message/Popconfirm/confirm 背景均为 rgb(31,31,31)
+- **阅读器崩溃修复（第三批遗留回归，高严重度）**：
+  - `NovelReader.jsx` 键盘翻页 effect 的依赖数组在渲染期引用了后文才声明的 `paginatedContent`，触发 TDZ `ReferenceError`，打开阅读器即整页白屏（第三批冒烟时 Mongo 不可达、无小说数据，路径未被走到）。将该 effect 移至 `paginatedContent` 声明之后。真实数据复验：阅读/翻页/方向键/续读/进度持久化（reader-progress JSON page:2）全部正常
+- **弃用 API 与控制台警告清理**：
+  - antd 升级 5.29.1 → **5.29.3**（补丁版；修复 `Input.Search` 内部恒传 addonAfter 触发 `[antd: Input] addonAfter deprecated` 的误报，新版以 `_skipAddonWarning` 跳过内部调用）
+  - Drawer `bodyStyle` → `styles.body`（NovelBrowser 阅读抽屉）；4 处独立 `<Spin tip>` 改嵌套模式（tip 仅 nest/fullscreen 生效）；AdminDashboard 告警表 `rowKey={(record,index)=>index}` → 预生成 `_rowKey` 字符串字段（index 参数签名已弃用）
+  - Router 开启 future flags `v7_startTransition`/`v7_relativeSplatPath`（react-router-dom 6.30），消除两条 v7 迁移警告
+- **首屏包体积优化**：
+  - 10 个业务页全部 `React.lazy` 懒加载 + 路由级 `<Suspense>`（居中 Spin 兜底）；vite `manualChunks` 改函数形式（对象形式无法命中 `react-dom/client`、`@rc-component/*` 子路径，曾把 react-dom 错分进 antd 包）：`react-vendor`（react/react-dom/scheduler/router）、`antd-icons`、`antd`（antd/@rc-component/rc-*/dayjs 保持 dayjs 单实例）；@antv 图表库（gzip 109KB）自然留在 AdminDashboard 懒加载 chunk
+  - 效果：改造前单一主 chunk 1.88MB（gzip 582KB）→ 外壳 45KB/18KB gz + react 160KB/52KB gz + 图标 57KB/16KB gz，antd 1.1MB/345KB gz 独立长效缓存；管理页图表不再进首屏
+- **收藏夹真实数据态全链路复验（Mongo 恢复后）**：新建收藏夹 → 小说收藏入夹 → /collections populate 条目展示（类型 Tag/作者/时间）→ 移除条目 → 再添加 → 删除收藏夹，全部通过
+- **验证**：Vitest 39 例全绿（新增 antdApp 桥接代理 3 例）；`vite build` 通过；浏览器冒烟两轮：暗色弹层 RGB 实测、懒加载 6 路由（含图表页）、收藏夹 CRUD、阅读器续读；最终控制台 5 类警告全部消失（仅余 React DevTools info）；dev server 因 antd 升级已重启（:3000，.vite 缓存已清）
+
+## 版本 2.15.0 - 第三批功能增能（元信息编辑 / 收藏夹页 / 筛选入 URL / 图片打包下载 / 阅读器续读）
+**发布日期**: 2026-09-12
+**状态**: ✅ 已完成
+
+- **背景**：第三批优化冻结的 5 项需求：标签/可见性后端字段早已就绪但前端零暴露；收藏只能在弹窗内管理、无独立浏览页；刷新后筛选/页码丢失；图片组只能逐张下载；阅读器无进度记忆。纯前端改动，无后端契约变更
+- **帖子标签/可见性编辑**：
+  - 新增 `components/PostEditModal.jsx`：标题 / 可见性（公开/受保护/私有，Radio 按钮态）/ 标签（Select tags 模式，逗号分隔），复用既有 `PUT /api/posts/:id`（白名单 title/visibility/tags，按 `{_id,userId}` 校验，非所有者 404 并提示）；保存成功回调同步列表与阅读器抽屉中的标题/标签/可见性
+  - 新增 `utils/postMeta.jsx`：三态中文元数据 + `VisibilityTag` 徽标（public 绿 / protected 橙，private 为默认态不在卡片显示以降噪）；图片组卡片、详情头部与小说卡片均展示徽标与标签
+  - 入口：图片组卡片操作区与详情头部「编辑信息」、小说卡片操作列编辑图标
+- **收藏夹独立浏览页**：
+  - 新增 `pages/CollectionsPage.jsx`（路由 `/collections`，侧栏菜单「我的收藏」，StarOutlined）：左栏收藏夹列表（条目数、公开标记、内联删除 Popconfirm、右上角新建），右栏选中收藏夹的 populate 条目（复用 `GET /browse/collections/:id` 已 populate 的 title/author/media/content/postType/createdAt）；图片类显示封面、小说类显示正文摘要，支持单条移除（`DELETE /collections/:id/items`）、删除收藏夹、新建收藏夹、空态引导跳转浏览
+- **筛选状态入 URL（可分享、可刷新恢复、支持浏览器前进后退）**：
+  - 任务列表：`/?q=&status=&crawlType=&page=`；`useTasks(initialFilters)` 支持初始值，TaskList 挂载时从 URL 恢复、筛选/页码变化以 replace 单向回写
+  - 浏览页：`/browse?tab=images|novels`（BrowsePage Tabs activeKey 改由 URL 派生，切 Tab 清空上一 Tab 筛选参数；Tabs `destroyOnHidden`，非活动浏览组件卸载避免双份请求）
+  - 图片浏览：`q/task/start/end/page`；小说浏览另含 `min/max`；草稿与已提交条件均从 URL 初始化，挂载首刷落在 URL 指定页码（initialPageRef），重置按钮清空为纯 tab 参数
+- **图片组一键打包下载（ZIP）**：
+  - 新增零依赖 `utils/zip.js`：手写 STORE zip（local file header + central directory + EOCD，UTF-8 文件名标志位 0x0800）+ IEEE CRC32 + 文件名清洗去重；JPEG/PNG 本身已压缩，STORE 无 CPU 压缩开销且不引入 jszip/file-saver
+  - 图片详情头部新增「打包下载」：并发池 5 路 fetch 同源图片（失败跳过并计数），按钮实时显示 `打包中 done/total · 失败N`，Blob+`a[download]` 触发 `<标题>.zip`；全失败/空组分别提示
+  - 单测 3 例（CRC32 标准向量 0xCBF43926、重名兜底、含中文名的 zip 解析往返），并用系统 `unzip` 对真实产物交叉验证通过
+- **阅读器进度记忆**：
+  - 新增 `utils/readerProgress.js`：`reader-progress:<小说id>` 存 `{page,fontSize,lineHeight,theme,updatedAt}`，localStorage 不可用/数据损坏/枚举非法时静默降级；NovelReader 挂载恢复页码与字号/行距/主题，任意变化即写回；越界页码（内容变短）自动收敛末页
+  - 新增左右方向键翻页（焦点在表单控件或带修饰键时不拦截）；工具栏显示「续读第 N 页 · 清除」入口；NovelBrowser 中阅读器按 `novel._id` 加 key，切书独立挂载恢复
+- **验证**：Vitest 36 例全绿（新增 11 例：zip 3 / readerProgress 5 / PostEditModal 纯函数 3）；`vite build` 通过；浏览器冒烟 8/8（铸 JWT 注入，Mongo 不可达空数据态）：菜单与 `/collections` 渲染、Tab 切换 URL、搜索/重置 q 参数、URL 恢复关键词、localStorage 读写、zip 动态 import 生成 Blob 均通过；收藏夹 populate 依赖 Mongo，未做在线数据态验证
+- **文档**：仅本 CHANGELOG，无 API 契约变更
+
 ## 版本 2.14.0 - 移动端响应式布局与全局暗色模式
 **发布日期**: 2026-09-12
 **状态**: ✅ 已完成

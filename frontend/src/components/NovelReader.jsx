@@ -1,16 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import {
-  Button,
-  Space,
-  Slider,
-  Radio,
-  Tooltip,
-  message,
-  Pagination,
-  Row,
-  Col,
-  Statistic,
-} from 'antd';
+import { Button, Space, Slider, Radio, Tooltip, Pagination, Row, Col, Statistic } from 'antd';
 import {
   DownloadOutlined,
   CopyOutlined,
@@ -21,6 +10,7 @@ import {
 import { loadProgress, saveProgress, clearProgress } from '../utils/readerProgress';
 import './NovelReader.css';
 
+import { message } from '../utils/antdApp';
 const NovelReader = ({ novel }) => {
   // 挂载时从 localStorage 恢复阅读进度与阅读设置（按小说 id 隔离）
   const saved = useMemo(() => loadProgress(novel._id), [novel._id]);
@@ -43,23 +33,6 @@ const NovelReader = ({ novel }) => {
       contentRef.current.scrollTop = 0;
     }
   }, [currentPage]);
-
-  // 键盘左右方向键翻页（焦点在字号滑杆等表单控件上时不拦截，避免冲突）
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      const tag = e.target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        setCurrentPage((p) => Math.max(1, p - 1));
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        setCurrentPage((p) => Math.min(paginatedContent.totalPages, p + 1));
-      }
-    };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [paginatedContent.totalPages]);
 
   const handleResetProgress = () => {
     clearProgress(novel._id);
@@ -110,6 +83,24 @@ const NovelReader = ({ novel }) => {
       setCurrentPage(paginatedContent.totalPages);
     }
   }, [currentPage, paginatedContent.totalPages]);
+
+  // 键盘左右方向键翻页（焦点在字号滑杆等表单控件上时不拦截，避免冲突）。
+  // 必须放在 paginatedContent 声明之后：依赖数组在渲染期求值，前置会触发 TDZ
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setCurrentPage((p) => Math.max(1, p - 1));
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setCurrentPage((p) => Math.min(paginatedContent.totalPages, p + 1));
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [paginatedContent.totalPages]);
 
   const themeStyles = {
     light: {
