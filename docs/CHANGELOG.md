@@ -1,5 +1,37 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.18.0 - 图片浏览支持按存储路径 ID 直接查询
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：图片按任务落盘在 `/public/images/uploads/<taskId>/<hash>.<ext>`，目录名 `taskId`（24 位 ObjectId）是文件存储时的路径 ID；但内容浏览-图片 Tab 只能从任务下拉框按任务名筛选，或按标题/作者关键词搜索——直接拿到存储路径中的 ID 时无处可查（贴进关键词框因不匹配标题/作者必然为空），任务已删除或超过下拉加载数量（前 100 条）时也无法定位其图片
+- **前端（ImageBrowser.jsx）**：任务筛选控件由 `Select` 改为 `AutoComplete`——下拉仍列出全部任务（选项展示「任务名（ID）」，可按名称或 ID 字符过滤），同时支持直接在输入框粘贴存储路径中的 24 位 ID 后点「搜索」/回车提交；非法形态前端拦截并提示，不发请求；URL 参数 `task`、与关键词/日期的组合筛选逻辑不变
+- **后端（browseService.listImageGroups）**：`taskId` 查询参数非空时校验 ObjectId 形态（新增纯函数 `isValidObjectId`），非法值入口即返回 400「ID 格式无效：图片存储路径中的 ID 应为 24 位字符串」，避免自由输入穿透到 Mongoose 触发 CastError 变 500；空白 trim 后忽略。数据过滤本身沿用既有 `taskId` 等值条件（命中 `{postType:1,taskId:1,createdAt:-1}` 索引）与用户可见性隔离
+- **验证**：后端 jest browseService/browseController 71 例通过（新增 `isValidObjectId` 纯函数 1 例、非法 ID 返回 400 且不查库 1 例、空白 trim 1 例，既有 2 例 `'t1'` 占位改为合法 ObjectId）；前端 Vitest 全量 + `vite build` 通过
+- **文档**：docs/api.md（taskId 语义与 400）、本 CHANGELOG；无新增文件/环境变量/索引/部署步骤
+
+## 版本 2.17.0 - 暂停/恢复真正生效（爬虫协同挂起 + 状态机修复）
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：暂停功能形同虚设——`pauseTask` 只把数据库状态改成 `paused`，爬虫 Python 进程完全无感继续跑；且爬虫退出时 `crawlerExecutor` 直接 `findByIdAndUpdate(status:'completed')` 绕过 taskService 把 `paused` 覆盖掉。前端恢复按钮（仅 `paused` 状态渲染）因此一闪即逝/根本留不住，恢复操作也只是改状态、不重新调度
+- **爬虫侧协同暂停（crawler/lib/pause_gate.py 新增纯逻辑 + crawl.py 闸门）**：
+  - 爬虫以 MongoDB `crawlertasks.status` 为唯一事实来源，在**安全边界**（批量：每个版块页、每个帖子处理前；单帖：多分页遍历前；以及 crawl_forum 启动时）调用 `wait_if_paused()`：检测到 `paused` 即阻塞，3s 轮询一次，恢复 `running` 后继续；阻塞期间不发起任何抓取请求。执行节点与 API 节点分离同样生效
+  - 挂起/恢复各打印一行 `PAUSED:`/`RESUMED:` 标记；读取异常不冻结采集（入口放行、等待期复查）；任务在等待中被删除则结束等待
+  - 纯逻辑下沉 `lib/pause_gate.wait_while_paused(read_state, ...)`（依赖注入、仅标准库，CI 无 requests/pymongo 可测），新增 `tests/test_pause_gate.py` 7 例
+- **后端状态机（taskService）**：
+  - `pauseTask` 增加状态守卫：仅 `running`/`pending` 可暂停（其余 400）；`pending` 先 `removeQueuedTask` 移出等待/延迟队列再置 `paused`；发布 `status=paused` SSE 事件
+  - `resumeTask` 仅 `paused` 可恢复（其余 400）；经新增的 `crawlerQueue.findActiveJobForTask`（跨实例查 Redis active jobs）判断：有 active job 仅置 `running` 放行闸门、保留进度；无 active job（排队暂停/进程随节点退出）重置进度并重新入队，入队失败置 `failed` 并追加 errorLog
+  - 新增系统内部 `awaitTaskRunnable(taskId)`：worker 领取 job 后若任务仍 `paused`（服务重启/Bull stalled 重投递）则轮询等待，绝不用 markRunning 覆盖暂停意图；任务已删除/已终态时安静放弃 job
+  - `markCompleted` 补落 `skippedItems/failedItems/skipReasons`（原先由 executor 直接写库）
+- **crawlerExecutor 收口**：
+  - 进程结束不再直接写任务状态（完成/失败统一由 worker 经 taskService 落库），根除"完成写入覆盖 paused"
+  - 墙钟执行超时支持暂停冻结：解析到 `PAUSED:` 清除定时器、`RESUMED:` 按剩余时间重新计时，长时间暂停不再误杀爬虫
+- **调度器**：扫描条件 `status $ne running` 改为 `$nin [running, paused]`，用户暂停的定时任务不再被每分钟调度自动拉起（恢复只能由用户显式 resume）
+- **前端**：无需改动——v2.13.1 起 `paused` 状态的恢复按钮与 `useTasks.resumeTask` 已就绪，后端状态真正停在 `paused` 后按钮自然常驻；日志弹窗 SSE 状态标签同步显示「已暂停」
+- **验证**：后端 jest 260 例通过（新增/更新 18 例：pause/resume 状态机 7、awaitTaskRunnable 5、markCompleted 统计 1、worker 闸门 2、调度器过滤 1 等；唯一失败 taskEventBus.test.js 7 例为 stash 基线已存在的 ioredis 跨文件污染，与本次无关）；crawler pytest 95 例全绿（新增 7）；crawl.py 假库冒烟（paused→paused→running 正确打印 PAUSED/RESUMED）；Vitest 39 例全绿；`vite build` 通过
+- **文档**：docs/api.md（7/8 节暂停恢复真实语义与 400 条件）、docs/files.md（pause_gate.py 登记）、本 CHANGELOG；无新增环境变量/索引/部署步骤
+
 ## 版本 2.16.2 - 生产白屏热修（antd icons 拆包循环依赖）
 **发布日期**: 2026-09-13
 **状态**: ✅ 已完成

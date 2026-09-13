@@ -28,6 +28,8 @@ beforeEach(() => jest.clearAllMocks());
 const adminUser = { userId: 'admin1', role: 'admin' };
 const normalUser = { userId: 'u1', role: 'user' };
 const normalVisibility = { $or: [{ userId: 'u1' }, { visibility: 'public' }] };
+// 合法 ObjectId 形态（图片存储目录 /public/images/uploads/<taskId>/ 中的 ID）
+const VALID_TASK_ID = '6982090b81df0d457f25d988';
 
 const expectAppError = async (p, statusCode, message) => {
   await expect(p).rejects.toBeInstanceOf(AppError);
@@ -133,6 +135,16 @@ describe('browseService 纯函数', () => {
     expect(service.escapeRegExp('$^{}()[]|\\+?')).toContain('\\');
   });
 
+  it('isValidObjectId 仅接受 24 位十六进制字符串', () => {
+    expect(service.isValidObjectId('6982090b81df0d457f25d988')).toBe(true);
+    expect(service.isValidObjectId('ABCDEF0123456789abcdef01')).toBe(true);
+    expect(service.isValidObjectId('t1')).toBe(false);
+    expect(service.isValidObjectId('6982090b81df0d457f25d98')).toBe(false); // 23 位
+    expect(service.isValidObjectId('6982090b81df0d457f25d98g')).toBe(false); // 含非十六进制字符
+    expect(service.isValidObjectId('')).toBe(false);
+    expect(service.isValidObjectId(undefined)).toBe(false);
+  });
+
   it('buildVisibilityFilter admin 全量，普通用户本人或 public', () => {
     expect(service.buildVisibilityFilter(adminUser)).toEqual({});
     expect(service.buildVisibilityFilter(normalUser)).toEqual(normalVisibility);
@@ -198,7 +210,7 @@ describe('browseService 图片列表/详情', () => {
     Post.countDocuments.mockReturnValue(mockCount(7));
 
     const { items, pagination } = await service.listImageGroups(
-      { page: '2', limit: '12', taskId: 't1' },
+      { page: '2', limit: '12', taskId: VALID_TASK_ID },
       adminUser
     );
 
@@ -214,7 +226,7 @@ describe('browseService 图片列表/详情', () => {
       {
         page: '1',
         limit: '12',
-        taskId: 't1',
+        taskId: VALID_TASK_ID,
         keyword: 'a.b',
         startDate: '2026-01-01',
         endDate: '2026-01-31',
@@ -223,7 +235,7 @@ describe('browseService 图片列表/详情', () => {
     );
 
     const filter = Post.find.mock.calls[0][0];
-    expect(filter.taskId).toBe('t1');
+    expect(filter.taskId).toBe(VALID_TASK_ID);
     expect(filter.$or).toEqual([
       { title: { $regex: 'a\\.b', $options: 'i' } },
       { author: { $regex: 'a\\.b', $options: 'i' } },
@@ -232,6 +244,29 @@ describe('browseService 图片列表/详情', () => {
       $gte: new Date('2026-01-01T00:00:00'),
       $lte: new Date('2026-01-31T23:59:59.999'),
     });
+  });
+
+  it('listImageGroups 非法形态的 ID 直接 400 且不发起查询', async () => {
+    Post.find.mockReturnValue(mockQuery([]));
+    Post.countDocuments.mockReturnValue(mockCount(0));
+
+    const p = service.listImageGroups({ page: '1', limit: '12', taskId: 'not-an-id' }, adminUser);
+    await expectAppError(p, 400, 'ID 格式无效：图片存储路径中的 ID 应为 24 位字符串');
+    expect(Post.find).not.toHaveBeenCalled();
+    expect(Post.countDocuments).not.toHaveBeenCalled();
+  });
+
+  it('listImageGroups 空白 taskId 被忽略，trim 后的值用于过滤', async () => {
+    Post.find.mockReturnValue(mockQuery([]));
+    Post.countDocuments.mockReturnValue(mockCount(0));
+
+    await service.listImageGroups(
+      { page: '1', limit: '12', taskId: `  ${VALID_TASK_ID}  ` },
+      adminUser
+    );
+
+    const filter = Post.find.mock.calls[0][0];
+    expect(filter.taskId).toBe(VALID_TASK_ID);
   });
 
   it('listImageGroups 普通用户查询携带可见性过滤', async () => {

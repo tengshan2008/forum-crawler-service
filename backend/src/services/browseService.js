@@ -148,6 +148,14 @@ const enrichNovels = (novels) =>
 const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * 校验 MongoDB ObjectId 形态（24 位十六进制）
+ * 图片按任务落盘在 /public/images/uploads/<taskId>/，前端支持直接粘贴该目录 ID 查询；
+ * 入口不校验会让非法值穿透到 Mongoose 触发 CastError 变成 500
+ */
+const OBJECT_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
+const isValidObjectId = (id) => OBJECT_ID_PATTERN.test(String(id || ''));
+
+/**
  * 帖子可见性过滤（语义与 postController 一致）：
  * admin 全量；普通用户仅本人帖子或 visibility 为 public 的帖子
  */
@@ -190,12 +198,20 @@ async function listImageGroups(query, user) {
     endDate,
     sortBy = '-createdAt',
   } = query;
+
+  // taskId 即图片存储路径 /public/images/uploads/<taskId>/ 中的目录 ID，
+  // 支持前端直接粘贴查询；非法形态在入口拒绝，避免 Mongoose CastError 变 500
+  const normalizedTaskId = (taskId || '').trim();
+  if (normalizedTaskId && !isValidObjectId(normalizedTaskId)) {
+    throw new AppError('ID 格式无效：图片存储路径中的 ID 应为 24 位字符串', 400);
+  }
+
   const pageNum = parseInt(page);
   const pageSize = parseInt(limit);
   const skip = (pageNum - 1) * pageSize;
 
   const filter = applyVisibility(
-    buildImageFilter({ taskId, keyword, startDate, endDate }),
+    buildImageFilter({ taskId: normalizedTaskId || undefined, keyword, startDate, endDate }),
     user
   );
 
@@ -710,6 +726,7 @@ module.exports = {
   escapeRegExp,
   buildVisibilityFilter,
   applyVisibility,
+  isValidObjectId,
   countCache,
   // 数据访问
   listImageGroups,

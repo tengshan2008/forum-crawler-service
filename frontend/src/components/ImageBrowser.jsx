@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Row, Col, Card, Image, Space, Button, Input, Select, DatePicker, Spin, Pagination, Empty, Tooltip, Typography, Tag, Modal } from 'antd';
+  Row, Col, Card, Image, Space, Button, Input, AutoComplete, DatePicker, Spin, Pagination, Empty, Tooltip, Typography, Tag, Modal } from 'antd';
 import {
   DownloadOutlined,
   ShareAltOutlined,
@@ -28,6 +28,10 @@ const { RangePicker } = DatePicker;
 const { Title, Text } = Typography;
 
 const DEFAULT_FILTERS = { taskId: '', keyword: '', dateRange: null };
+
+// 图片按任务落盘在 /public/images/uploads/<taskId>/，目录名即 24 位 ObjectId；
+// 支持直接粘贴该 ID 查询（下拉选任务同样写入此字段）
+const OBJECT_ID_RE = /^[0-9a-fA-F]{24}$/;
 
 // 从 URL 恢复筛选草稿/已提交条件（刷新、分享链接、浏览器前进后退均生效）
 const readFiltersFromUrl = (sp) => {
@@ -194,7 +198,13 @@ const ImageBrowser = ({ filtersVisible = true }) => {
 
   // 提交草稿筛选条件；实际请求由 appliedFilters 变化触发的 effect 统一发出
   const handleSearch = () => {
-    setAppliedFilters({ ...filters });
+    // ID 查询：允许下拉选任务或直接粘贴存储路径中的 24 位 ID，非法形态不发请求
+    const taskId = (filters.taskId || '').trim();
+    if (taskId && !OBJECT_ID_RE.test(taskId)) {
+      message.warning('ID 格式无效：请粘贴图片存储路径中的 24 位 ID，或从下拉列表选择任务');
+      return;
+    }
+    setAppliedFilters({ ...filters, taskId });
   };
 
   const handleReset = () => {
@@ -475,19 +485,28 @@ const ImageBrowser = ({ filtersVisible = true }) => {
               />
             </Col>
             <Col xs={24} sm={12} md={6}>
-              <Select
-                placeholder='选择任务'
+              {/* 可下拉选任务，也可直接粘贴图片存储路径中的 ID（/public/images/uploads/<ID>/，即任务 ID） */}
+              <AutoComplete
                 style={{ width: '100%' }}
-                value={filters.taskId || undefined}
+                value={filters.taskId || ''}
                 onChange={handleTaskFilter}
-                allowClear
+                onSelect={handleTaskFilter}
+                options={tasks.map((task) => ({
+                  value: task._id,
+                  label: `${task.name}（${task._id}）`,
+                }))}
+                filterOption={(input, option) =>
+                  String(option?.label ?? '')
+                    .toLowerCase()
+                    .includes(input.trim().toLowerCase())
+                }
               >
-                {tasks.map((task) => (
-                  <Select.Option key={task._id} value={task._id}>
-                    {task.name}
-                  </Select.Option>
-                ))}
-              </Select>
+                <Input
+                  placeholder='选择任务或输入存储 ID 查询'
+                  onPressEnter={handleSearch}
+                  allowClear
+                />
+              </AutoComplete>
             </Col>
             <Col xs={24} sm={12} md={12}>
               <RangePicker
