@@ -62,6 +62,17 @@ PAUSE_POLL_INTERVAL = 3
 
 def _log_duplicate_decision(url_post, result, content_length):
     """输出去重判定的人工排查日志（lib.dedup 是无副作用纯函数，日志由调用方负责）。"""
+    # 基础判定日志：每次去重都输出 action/reason/message，便于排查为何保存/更新/跳过
+    action = result['action']
+    reason = result.get('reason')
+    message = result.get('message')
+    parts = [f'🔍 去重判定: {action}']
+    if reason:
+        parts.append(f'reason={reason}')
+    if message:
+        parts.append(f'message={message}')
+    print(' | '.join(parts), flush=True)
+
     # 旧记录既无 contentLength 也无正文可推算长度（回填前历史数据）
     if result.get('detail') == LEGACY_NO_LENGTH:
         print(f"⚠ 现有记录无长度信息（旧数据），新内容长度：{content_length} 字符，将继续用内容哈希进行检查", flush=True)
