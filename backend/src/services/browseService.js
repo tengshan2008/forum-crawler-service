@@ -85,6 +85,8 @@ const buildImageFilter = ({ taskId, keyword, startDate, endDate } = {}) => {
 const buildNovelFilter = ({ taskId, startDate, endDate } = {}) => {
   const filter = {
     postType: { $in: ['novel', 'text'] },
+    // 仅系列代表帖参与列表/搜索：实现书级分页，避免同系列跨页重复
+    isSeriesHead: true,
   };
 
   if (taskId) {
@@ -143,6 +145,84 @@ const enrichNovels = (novels) =>
   }));
 
 /**
+ * 将一页「系列代表帖」补充为完整的书目列表项。
+ * - 无 series 的帖子（t66y 一帖一本）：直接用自身字段，chapterCount=1
+ * - 有 series 的代表帖：按 series 批量拉取全部章节（走 series 索引，文档量小），
+ *   在应用层聚合 chapterCount/wordCount/views/likes/replies/latestChapterAt，
+ *   摘要取章节号最小者的正文前 200 字。
+ * 这样列表分页在书级别进行，同一系列不会跨页重复。
+ */
+const enrichSeriesHeads = async (heads, user) => {
+  if (!heads.length) return [];
+
+  const seriesNames = [...new Set(heads.map((h) => h.series).filter(Boolean))];
+  let seriesStats = new Map();
+  if (seriesNames.length) {
+    const chapters = await Post.find(applyVisibility({ series: { $in: seriesNames } }, user))
+      .select('_id series chapterNo content views likes replies createdAt')
+      .lean();
+    for (const c of chapters) {
+      const key = String(c.series);
+      let s = seriesStats.get(key);
+      if (!s) {
+        s = { chapterCount: 0, wordCount: 0, views: 0, likes: 0, replies: 0,
+              latestChapterAt: c.createdAt, firstChapter: null };
+        seriesStats.set(key, s);
+      }
+      s.chapterCount += 1;
+      s.wordCount += (c.content || '').length;
+      s.views += c.views || 0;
+      s.likes += c.likes || 0;
+      s.replies += c.replies || 0;
+      if (c.createdAt > s.latestChapterAt) s.latestChapterAt = c.createdAt;
+      const cn = c.chapterNo != null ? c.chapterNo : Number.MAX_SAFE_INTEGER;
+      if (!s.firstChapter || cn < s.firstChapter.chapterNo) {
+        s.firstChapter = { chapterNo: cn, excerpt: (c.content || '').substring(0, 200) };
+      }
+    }
+  }
+
+  return heads.map((h) => {
+    if (h.series) {
+      const s = seriesStats.get(String(h.series)) || {};
+      return {
+        _id: h._id,
+        series: h.series,
+        title: h.series,
+        author: h.author,
+        sourceUrl: h.sourceUrl,
+        taskId: h.taskId,
+        createdAt: s.latestChapterAt || h.createdAt,
+        latestChapterAt: s.latestChapterAt || h.createdAt,
+        chapterCount: s.chapterCount || 1,
+        wordCount: s.wordCount || 0,
+        views: s.views || 0,
+        likes: s.likes || 0,
+        replies: s.replies || 0,
+        excerpt: s.firstChapter?.excerpt || '',
+      };
+    }
+    const content = h.content || '';
+    return {
+      _id: h._id,
+      series: null,
+      title: h.title,
+      author: h.author,
+      sourceUrl: h.sourceUrl,
+      taskId: h.taskId,
+      createdAt: h.createdAt,
+      latestChapterAt: h.createdAt,
+      chapterCount: 1,
+      wordCount: content.length,
+      views: h.views || 0,
+      likes: h.likes || 0,
+      replies: h.replies || 0,
+      excerpt: content.substring(0, 200),
+    };
+  });
+};
+
+/**
  * 转义正则特殊字符（正则回退搜索用）
  */
 const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -181,7 +261,7 @@ const applyVisibility = (filter, user) => {
 };
 
 const POST_LIST_SELECT = 'title author sourceUrl taskId media createdAt';
-const NOVEL_SELECT = 'title author content sourceUrl taskId createdAt views likes replies';
+const NOVEL_SELECT = 'title author content sourceUrl taskId createdAt views likes replies series chapterNo';
 
 // ============ 数据访问 ============
 
@@ -269,74 +349,53 @@ async function getImageGroupDetail(postId, user) {
 }
 
 /**
- * 获取小说列表（支持游标分页/索引提示/计数缓存，按用户可见性隔离）
+ * 获取小说列表（书级分页：仅查询 isSeriesHead=true 的代表帖，按系列聚合统计）
+ * 每本书一条记录，同一系列不会跨页重复；计数用 countDocuments 精确到书。
  */
 async function listNovels(query, user) {
-  const { page = 1, limit = 20, taskId, sortBy = '-createdAt', lastId } = query;
+  const { page = 1, limit = 20, taskId, sortBy = '-createdAt' } = query;
   const pageNum = parseInt(page);
   const pageSize = Math.min(parseInt(limit), NOVEL_PAGE_SIZE_CAP);
+  const skip = (pageNum - 1) * pageSize;
 
   const filter = applyVisibility(buildNovelFilter({ taskId }), user);
 
-  // 索引提示仅在无可见性 $or（admin 全量）时安全：$or 场景下强制 hint 会放弃
-  // userId/visibility 分支索引（{userId:1,...}/{visibility:1,...}），退化为全量拉取过滤
+  // 索引提示仅在无可见性 $or（admin 全量）时安全
   const applyHint = (q) =>
     filter.$or
       ? q
-      : q.hint(taskId ? { postType: 1, taskId: 1, createdAt: -1 } : { postType: 1, createdAt: -1 });
+      : q.hint(taskId ? { postType: 1, taskId: 1, createdAt: -1 } : { isSeriesHead: 1, postType: 1, createdAt: -1 });
 
-  // 游标分页：lastId + 默认排序时用 _id 翻页，大数据量下比 skip 高效
-  let novels;
-  let cursorLastId = null;
-  if (lastId && sortBy === '-createdAt') {
-    filter._id = { $lt: lastId };
-    novels = await applyHint(
-      Post.find(filter)
-        .select(NOVEL_SELECT)
-        .sort({ _id: -1 })
-        .limit(pageSize)
-        .maxTimeMS(QUERY_TIMEOUT_MS)
-        .lean()
-    );
-  } else {
-    const skip = (pageNum - 1) * pageSize;
-    novels = await applyHint(
-      Post.find(filter)
-        .select(NOVEL_SELECT)
-        .sort(sortBy)
-        .skip(skip)
-        .limit(pageSize)
-        .maxTimeMS(QUERY_TIMEOUT_MS)
-        .lean()
-    );
-  }
+  const heads = await applyHint(
+    Post.find(filter)
+      .select(NOVEL_SELECT)
+      .sort(sortBy)
+      .skip(skip)
+      .limit(pageSize)
+      .maxTimeMS(QUERY_TIMEOUT_MS)
+      .lean()
+  );
 
-  const items = enrichNovels(novels);
-  if (novels.length > 0) {
-    cursorLastId = novels[novels.length - 1]._id;
-  }
+  const items = await enrichSeriesHeads(heads, user);
 
-  // 获取总数（使用缓存；key 携带 userId，避免不同用户的可见范围计数互相污染）
+  // 总数：countDocuments 直接走 isSeriesHead 索引，精确到书
   const cacheKey = `novels_count_${user.userId}_${taskId || 'all'}`;
   let total = countCache.get(cacheKey);
   if (total === null) {
-    total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
+    const countQ = Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
+    if (!filter.$or) countQ.hint({ isSeriesHead: 1, postType: 1, createdAt: -1 });
+    total = await countQ;
     countCache.set(cacheKey, total);
   }
 
   return {
     items,
-    pagination: buildPagination({
-      page: pageNum,
-      limit: pageSize,
-      total,
-      extra: { lastId: cursorLastId },
-    }),
+    pagination: buildPagination({ page: pageNum, limit: pageSize, total }),
   };
 }
 
 /**
- * 搜索和筛选小说（文本索引优先，正则回退，按用户可见性隔离）
+ * 搜索和筛选小说（文本索引优先，正则回退，页内按 series 分组）
  */
 async function searchNovels(body, user) {
   const {
@@ -363,7 +422,7 @@ async function searchNovels(body, user) {
     const trimmedKeyword = keyword.trim();
 
     if (useTextSearch) {
-      // 使用 MongoDB 文本索引搜索（推荐，性能更好）；$text 保持在查询根层
+      // 文本索引搜索：$text 保持查询根层，score 投影用于相关性排序
       filter.$text = { $search: trimmedKeyword };
       applyVisibility(filter, user);
 
@@ -377,13 +436,12 @@ async function searchNovels(body, user) {
 
       total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
     } else {
-      // 回退到正则表达式搜索（仅搜索 title 和 author）
+      // 正则回退：仅搜索 title 和 author
       const escapedKeyword = escapeRegExp(trimmedKeyword);
       filter.$or = [
         { title: { $regex: escapedKeyword, $options: 'i' } },
         { author: { $regex: escapedKeyword, $options: 'i' } },
       ];
-      // 关键词 $or 已占用，可见性经 $and 组合
       applyVisibility(filter, user);
 
       novels = await Post.find(filter)
@@ -397,7 +455,6 @@ async function searchNovels(body, user) {
       total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
     }
   } else {
-    // 无关键词时直接查询；可见性 $or 场景不加 hint（同 listNovels，保留 $or 分支索引选择权）
     applyVisibility(filter, user);
     let q = Post.find(filter)
       .select(NOVEL_SELECT)
@@ -405,27 +462,31 @@ async function searchNovels(body, user) {
       .skip(skip)
       .limit(pageSize);
     if (!filter.$or) {
-      q = q.hint({ postType: 1, createdAt: -1 });
+      q = q.hint({ isSeriesHead: 1, postType: 1, createdAt: -1 });
     }
     novels = await q.maxTimeMS(QUERY_TIMEOUT_MS).lean();
 
-    // 使用缓存获取总数（key 携带 userId，避免跨用户计数污染）
     const cacheKey = `search_count_${user.userId}_${taskId || 'all'}_${startDate || ''}_${endDate || ''}`;
     total = countCache.get(cacheKey);
     if (total === null) {
-      total = await Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
+      const countQ = Post.countDocuments(filter).maxTimeMS(QUERY_TIMEOUT_MS);
+      if (!filter.$or) countQ.hint({ isSeriesHead: 1, postType: 1, createdAt: -1 });
+      total = await countQ;
       countCache.set(cacheKey, total);
     }
   }
 
   return {
-    items: enrichNovels(novels),
+    items: await enrichSeriesHeads(novels, user),
     pagination: buildPagination({ page: pageNum, limit: pageSize, total }),
   };
 }
 
 /**
- * 获取单个小说的详细内容（原子递增浏览量，按用户可见性隔离）
+ * 获取小说详细内容（原子递增浏览量，按用户可见性隔离）
+ * - 普通帖子（无 series）：原样返回
+ * - 系列帖子（有 series）：拉取该系列全部章节，按 chapterNo 升序拼接 content，
+ *   返回对象以系列名为 title、拼接文本为 content，并附 chapterCount 供阅读器展示
  */
 async function getNovelContent(id, user) {
   // 使用 findOneAndUpdate 原子更新浏览量，避免 save() 触发 validation 错误
@@ -440,7 +501,37 @@ async function getNovelContent(id, user) {
     throw new AppError('小说不存在', 404);
   }
 
-  return novel;
+  // 非系列帖子直接返回
+  if (!novel.series) {
+    return novel;
+  }
+
+  // 系列：拉取同 series 全部章节，按 chapterNo 升序拼接
+  const chapters = await Post.find(applyVisibility({ series: novel.series }, user))
+    .select('title author content chapterNo series sourceUrl createdAt')
+    .sort({ chapterNo: 1, createdAt: 1 })
+    .maxTimeMS(QUERY_TIMEOUT_MS)
+    .lean();
+
+  if (chapters.length === 0) {
+    return novel;
+  }
+
+  const combinedContent = chapters
+    .map((ch) => {
+      const header = ch.chapterNo != null ? `【第${ch.chapterNo}章】${ch.title}\n\n` : `${ch.title}\n\n`;
+      return header + (ch.content || '');
+    })
+    .join('\n\n');
+
+  return {
+    ...novel.toObject(),
+    title: novel.series,
+    content: combinedContent,
+    chapterCount: chapters.length,
+    // 阅读器按 _id 恢复阅读进度，系列统一用首个章节 id 作为锚点
+    _id: chapters[0]._id,
+  };
 }
 
 // ============ 收藏夹 ============
@@ -627,7 +718,7 @@ async function getStats(user) {
   const visibility = buildVisibilityFilter(user);
   return {
     novels: {
-      total: await Post.countDocuments({ ...visibility, postType: { $in: ['novel', 'text'] } }).maxTimeMS(QUERY_TIMEOUT_MS),
+      total: await Post.countDocuments({ ...visibility, postType: { $in: ['novel', 'text'] }, isSeriesHead: true }).maxTimeMS(QUERY_TIMEOUT_MS),
     },
     images: {
       total: await Post.countDocuments({ ...visibility, postType: { $in: ['image', 'mixed'] } }).maxTimeMS(QUERY_TIMEOUT_MS),

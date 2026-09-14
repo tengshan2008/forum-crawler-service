@@ -186,6 +186,20 @@ describe('postController.updatePost', () => {
     });
   });
 
+  it('管理员可更新任意用户的帖子，查询不携带 userId 约束', async () => {
+    Post.findOneAndUpdate.mockResolvedValue({ _id: 'p2', title: '改好了' });
+    const res = makeRes();
+
+    await controller.updatePost(
+      makeReq({ user: { role: 'admin', userId: 'a1' }, params: { id: 'p2' }, body: { title: '改好了' } }),
+      res
+    );
+
+    expect(Post.findOneAndUpdate.mock.calls[0][0]).toEqual({ _id: 'p2' });
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ success: true, data: { _id: 'p2', title: '改好了' } });
+  });
+
   it('帖子不存在抛 404', async () => {
     Post.findOneAndUpdate.mockResolvedValue(null);
     const res = makeRes();
@@ -193,6 +207,20 @@ describe('postController.updatePost', () => {
     await expect(controller.updatePost(makeReq({ params: { id: 'x' } }), res)).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+
+  it('普通用户更新他人帖子抛 404，不泄露存在性', async () => {
+    Post.findOneAndUpdate.mockResolvedValue(null);
+    const res = makeRes();
+
+    await expect(
+      controller.updatePost(
+        makeReq({ user: { role: 'user', userId: 'u2' }, params: { id: 'p1' }, body: { title: 'x' } }),
+        res
+      )
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(Post.findOneAndUpdate.mock.calls[0][0]).toEqual({ _id: 'p1', userId: 'u2' });
   });
 });
 
@@ -212,6 +240,23 @@ describe('postController.deletePost', () => {
     });
   });
 
+  it('管理员可删除任意用户的帖子，查询不携带 userId 约束', async () => {
+    Post.findOneAndDelete.mockResolvedValue({ _id: 'p2' });
+    const res = makeRes();
+
+    await controller.deletePost(
+      makeReq({ user: { role: 'admin', userId: 'a1' }, params: { id: 'p2' } }),
+      res
+    );
+
+    expect(Post.findOneAndDelete).toHaveBeenCalledWith({ _id: 'p2' });
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: null,
+      message: 'Post deleted successfully',
+    });
+  });
+
   it('帖子不存在抛 404', async () => {
     Post.findOneAndDelete.mockResolvedValue(null);
     const res = makeRes();
@@ -219,6 +264,17 @@ describe('postController.deletePost', () => {
     await expect(controller.deletePost(makeReq({ params: { id: 'x' } }), res)).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+
+  it('普通用户删除他人帖子抛 404，不泄露存在性', async () => {
+    Post.findOneAndDelete.mockResolvedValue(null);
+    const res = makeRes();
+
+    await expect(
+      controller.deletePost(makeReq({ user: { role: 'user', userId: 'u2' }, params: { id: 'p1' } }), res)
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(Post.findOneAndDelete).toHaveBeenCalledWith({ _id: 'p1', userId: 'u2' });
   });
 });
 

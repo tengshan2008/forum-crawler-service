@@ -1,5 +1,66 @@
 # 变更日志 - 图片下载功能实现
 
+## 版本 2.18.4 - 修复 crazyhome 标签页批量采集不翻页 + 误采侧栏推荐文章
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：批量采集 crazyhome 出现两个问题：① 对**标签归档页** `/tag/<书名>/` 批量采集时只抓第 1 页，丢失翻页能力；② 每个分类/标签页都会多抓到一批不属于该版块的文章——实为侧栏「近期文章」推荐位内容
+- **问题一定位（lib/url_utils.py）**：WordPress 所有归档页（分类 `/category/`、标签 `/tag/`、首页）统一用 `/page/N/` 路径分页，但 `build_section_pagination_url` 只对 `/category/` 特判；标签页首址无分页段时错误回退成 `?page=2`，WordPress 忽略该未知参数、仍返回第 1 页，循环随即误判「没有下一页」终止（线上日志 `tag/我有一剑` 仅得 2 页且第 2 页重复第 1 页）。新增 `_uses_wordpress_path_pagination()`（域名 crazyhome2000.com 或路径含 `/category/`、`/tag/`），统一追加 `/page/N/`，t66y 等查询串分页行为不变
+- **问题二定位（crawl.py `_extract_crazyhome_post_links`）**：旧实现全页扫描所有 `<a>` 并按路径黑名单过滤，而侧栏推荐文章 URL 与正文同为 `/<slug>/` 形态无法区分（实测分类页 35 篇正文混入 15 篇推荐、标签页同）。改为只取主内容区 `<main>` 内的文章固定链接 `a[rel~=bookmark]`（分类页 `li.item>a`、标签页 `h3.item-title>a` 均带该属性，推荐位链接均不带），按 href 去重；主题改版导致选择器失配时逐级回退到全页 `rel=bookmark`、再到旧启发式扫描（逻辑下沉到 `_extract_crazyhome_post_links_fallback`）
+- **翻页判定加固（lib/url_utils.py `has_next_page`）**：优先在分页导航容器（class 含 pagination/pagenav/pages 等）内判定，再回退全页面；新增识别空文本「下一页」按钮 `li.next>a`（crazyhome 该按钮无文字），避免仅靠页码链接；末页仅余 `previous` 时正确判否
+- **真站验证**：`tag/我有一剑` 从第 1 页起完整翻到第 3 页，共 74 章（35+35+4）、0 推荐链接、末页正确停止；`tag/流落荒岛…`（单页）由旧的 26 条（11 真 + 15 推荐）收敛为精确 11 章；分类页由 50 条收敛为 35 条真实文章
+- **测试**：crawler pytest 全绿（新增 12 例：tag/分类路径分页构造与页码替换 5 例、空文本 next 按钮/末页判否 2 例、crazyhome 主列表提取与推荐排除/回退/空页 4 例；并补齐 `test_user_scoped_dedup` 桩的 `_reconcile_series_heads` no-op）
+
+## 版本 2.18.3 - 去重按用户隔离 + image 任务去重身份口径修正
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：v2.18.1 边界复核记录了两个语义缺口，本次收口：① 爬虫的 sourceUrl/contentHash 去重查询不带 userId，`posts.sourceUrl` 又是字段级全局唯一索引——用户 B 重爬用户 A 采过的 URL/内容会被 skip，名下永远不会产生自己的帖子副本；② image 任务的 contentHash/contentLength 按解析原始正文计算，但存库时 `content` 被替换成「楼主发布了 N 张图片」短文案（media 才是真实内容），字段自相矛盾；且同图数帖子存在短文案撞车隐患
+- **去重按用户隔离（crawl.py）**：
+  - `_is_post_exist` 两处查询（sourceUrl 精确、URL 未命中后的 contentHash 撞车）均加 `userId: self.user_id` 过滤；同 URL/同内容只在**同一用户**范围内 skip，不同用户各存一份
+  - `_flush_post_buffer` 的 UpdateOne upsert 过滤改为 `{sourceUrl, userId}`，与新复合唯一索引对齐；同批次内 sourceUrl 去重不变（同一任务必属同一用户）
+- **索引切换（Post.js + 迁移脚本，部署必做）**：
+  - 字段级 `sourceUrl unique` 与单列 `contentHash` 索引，替换为 `{sourceUrl:1,userId:1}` 复合唯一与 `{userId:1,contentHash:1}` 复合索引
+  - 新增 `backend/scripts/migratePostDedupIndexes.js`（幂等，--dry-run/--apply）：先聚合预检重复 sourceUrl（预期 0，非 0 中止并列出），先建新索引再删旧索引（切换窗口新旧查询都有索引），索引形态不符时跳过/报错不蛮干
+- **image 去重身份口径修正（lib/post_builder.py）**：
+  - 新增 `derive_post_identity(task_type, content, images)` 纯函数，判定查询与文档构建共用：image 的 contentLength 取**实际存库短文案**长度（与 v2.16.1 `$strLenCP(content)` 回填口径一致），contentHash 指纹取楼主图片原始 URL 的**有序列表**（重爬同帖同图哈希稳定；换图/加图/调序哈希改变）；无图时指纹退回解析正文，避免所有无图帖互相撞车。novel/mixed 口径不变（正文哈希+长度）
+  - 短文案模板收敛为 `image_content_override()` 一处，媒体处理与身份计算共用，杜绝两处文案漂移；crawl.py 3 处 hash/length 计算点（批量/单帖/文档准备）统一走 `_derive_post_identity`
+- **数据影响**：存量 image 帖子的旧 hash（原始正文口径）与新指纹不匹配，同用户重爬走 same_url 保守跳过（不覆盖、不重下图片，无数据损失）；存量 novel/text 完全不受影响。跨用户重复数据在旧全局去重下不存在，预检提供兜底
+- **管理员写权限补齐（postController，隔离复核发现）**：PUT/DELETE `/api/posts/:id` 原按 `{_id, userId}` 硬匹配，管理员虽能在浏览页看到全部内容，编辑他人帖子却收 404（前端编辑弹窗对可见内容无差别展示，与「管理员全量可见」语义矛盾；删除主链路走 `/api/browse/*` 本就放行）。新增 `buildOwnerScope(user)` 助手（口径同 taskService.scopedQuery / browseService.buildVisibilityFilter）：管理员豁免 userId 约束可改/删任意内容，普通用户语义不变，他人内容统一 404 不泄露存在性；字段白名单不变
+- **验证**：crawler pytest 119 例全绿（新增 derive_post_identity 8 例：image 指纹=URL 列表/长度=存库文案/重爬稳定/换图调序变化/无图退回正文/novel/mixed 不变；新增用户隔离 3 例：他人同 URL 不影响本用户、内容撞车查询限本用户、upsert 过滤带 userId）；`py_compile` 通过；后端 postController jest 16 例通过（新增管理员改/删他人帖子 2 例、普通用户越权改/删 404 2 例），schema 索引定义复核正确
+- **文档**：docs/deployment.md（迁移步骤）、docs/files.md（迁移脚本与身份函数登记）、docs/features/content-hash.md（按用户隔离语义 + image 指纹）、docs/api.md（PUT/DELETE 内容的管理员权限说明）、本 CHANGELOG；无环境变量变化
+
+## 版本 2.18.2 - 新增 crazyhome2000.com 小说采集源
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：现有爬虫仅支持 t66y 论坛结构；需新增 WordPress 小说站 `crazyhome2000.com` 采集源，且不改动后端/前端操作逻辑（用户粘贴 URL、选任务类型即可）
+- **站点结构观察**：
+  - 文章 URL：`https://www.crazyhome2000.com/<URL编码标题>/`，分类页：`/category/<分类>/`，分页：`/category/<分类>/page/<N>/`（非 `?page=N`）
+  - 标题 `<h1>`；作者在正文段落「作者：xxx」；正文容器 `div.entry-content`（首段书签弹窗、末段 `div.entry-copyright` 分类链接为噪音）；纯文本无图片、无文章内分页
+- **crawler/lib/url_utils.py**：分页纯函数兼容两种格式——新增 `_extract_page_number` 同时识别 `?page=N` 与 `/page/N/`；`extract_page_numbers`/`has_next_page`/`extract_page_from_url` 复用之；`build_section_pagination_url` 对 `/category/` 路径追加 `/page/N/`，其余维持 `?page=N`；page=1 无分页段时原样返回
+- **crawler/crawl.py**：
+  - 新增 `_detect_site(url)` 按域名识别 `crazyhome` / `t66y`（默认 t66y，零行为变化）
+  - `_get_headers` 移除 `Accept-Encoding` 中的 `br`（环境无 brotli 解码库，crazyhome 返回 br 压缩会被判乱码；gzip/deflate requests 原生支持，t66y 不受影响）；Referer 新增 crazyhome 域名
+  - 新增 `_parse_post` 分发器 + `parse_crazyhome_post`（标题/作者/正文，剔除书签弹窗与分类链接噪音，返回结构与 `parse_t66y_post` 一致）；`crawl_forum` 两处 `parse_t66y_post` 调用改为 `_parse_post`
+  - `extract_post_links_from_section` 新增 `section_url` 参数并按站点分发；新增 `_extract_crazyhome_post_links`（排除 category/tag/page/profile/login/register 等非文章路径）
+- **验证**：crawler pytest 96 例全绿（url_utils 18 例原 t66y 行为不变）；实时网络解析验证——分类第 2 页提取 50 个文章链接、分页 URL 构造正确、`has_next_page`/`extract_page_numbers` 正常；真实端到端单帖采集连 Mongo 成功（标题「超萌机娘大奸淫 16」、作者「超高校级的幸运」、contentLength 21236、postType=novel 正确入库，冒烟数据已清理）
+- **文档**：本 CHANGELOG；无 API/环境变量/索引/部署变化，后端前端零改动
+
+## 版本 2.18.1 - 爬虫入库前去重判定简化（零行为变化）
+**发布日期**: 2026-09-13
+**状态**: ✅ 已完成
+
+- **背景**：去重三层结构（批次内 URL 去重 / DB sourceUrl + contentHash 查询 / 更新检测）本身合理，但判定程序有三处不必要的复杂度：① 批量循环每个帖子先做一次 `find_one(sourceUrl)` "quick_check"，结果只用于打印一行日志、无任何跳过动作，抓完页面算完 hash 后 `_is_post_exist` 又查同一 URL，N 帖白查 N 次；② `lib/dedup.evaluate_duplicate` 自称纯函数却内嵌 5 处 print，测试需用 capsys 锁日志；③ 长度比对嵌在 5 层缩进里，"仅旧记录缺 contentLength 时才走长度兜底"的真实语义极不直观
+- **lib/dedup.py 扁平化（判定结果逐一核对、零语义变化）**：
+  - 5 步线性早返回：URL 未命中判撞车 → 历史无长度记录正文长度兜底 → 旧数据提示标记 → 正常记录只比哈希 → 保守 same_url；模块 docstring 显式写清三条判定规则
+  - 返回由松散 dict（`exists` + 可选 `shouldUpdate`，调用方靠 `.get()` 猜字段）改为固定四键 `{'action': 'save'|'update'|'skip', 'reason', 'message', 'detail'}`；skip 的 5 个 reason 枚举原样保留（受 backend Task 模型 `skipReasons` enum 与前端 PostPreview 标签约束），旧数据警告以 `detail='legacy_no_length'` 提示码返回
+  - print 全部移出，纯函数真正无副作用；常量 `SAVE/UPDATE/SKIP/LEGACY_NO_LENGTH` 导出
+- **crawl.py**：新增模块函数 `_log_duplicate_decision` 承接原 5 行人工日志（文案/时机不变，PROGRESS:/CRAWLED:/TITLE: 协议格式未动）；删除批量循环的 quick_check 冗余查询（每帖省一次 Mongo `find_one`）；两处 `list(set(links))` 改 `dict.fromkeys` 保序去重（版块链接提取 + 批量入口），爬取/进度顺序不再随机
+- **验证**：crawler pytest 108 例全绿（test_dedup 26 例：原 12 场景全部保留并改断言新结构，新增"旧数据提示在 duplicate 路径透传"1 例与"纯函数零 stdout/stderr"1 例；边界矩阵穷举复核后再补 12 例——两个无长度信息的宽松 update 出口、nl=0、CL=0、旧 CH 缺失、新 hash=None、撞车文档缺 sourceUrl、畸形 CL 不抛异常等）；`py_compile` 通过；磁盘 grep 复核无 `exists/shouldUpdate/quick_check` 残留
+- **边界复核结论（同日穷举矩阵）**：任意输入组合均有确定出口、无异常路径；已知设计点（非本次回归）：① 长度兜底分支等长即 unchanged 不看 hash（同长度改帖漏更，保守锁定）；② image 任务存库 content 被短文案覆盖而 contentLength/hash 按原始正文计算，字段口径不一致但去重不受影响；③ sourceUrl/contentHash 查询不带 userId，跨用户同帖全局 skip；④ check-then-write 同 URL 有唯一索引+upsert 兜底，同内容不同 URL 并发为 best-effort；⑤ `_is_post_exist` 查询异常 fail-open 放行
+- **文档**：docs/features/content-hash.md（返回字段、决策树、场景 2 改为现行保守语义）、docs/files.md（dedup.py 登记）、本 CHANGELOG；无 API/环境变量/索引/部署变化，无需迁移
+
 ## 版本 2.18.0 - 图片浏览支持按存储路径 ID 直接查询
 **发布日期**: 2026-09-13
 **状态**: ✅ 已完成

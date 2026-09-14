@@ -956,7 +956,7 @@ const ImageBrowser = ({ filtersVisible = true }) => {
         onChanged={fetchCollections}
       />
 
-      {/* 编辑标题/可见性/标签（PUT /api/posts/:id，仅资源所有者可改） */}
+      {/* 编辑标题/可见性/标签（PUT /api/posts/:id，所有者可改，管理员可改任意内容） */}
       <PostEditModal
         open={!!editingGroup}
         post={editingGroup}

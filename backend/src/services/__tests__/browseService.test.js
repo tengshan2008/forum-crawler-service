@@ -6,6 +6,7 @@ jest.mock('../../models/Post', () => ({
   findOneAndUpdate: jest.fn(),
   findOneAndDelete: jest.fn(),
   findByIdAndDelete: jest.fn(),
+  aggregate: jest.fn(),
 }));
 
 jest.mock('../../models/Collection', () => ({
@@ -56,8 +57,18 @@ const mockQuery = (result) => {
 
 const mockCount = (n) => ({
   maxTimeMS: jest.fn().mockReturnThis(),
+  hint: jest.fn().mockReturnThis(),
   then(resolve, reject) {
     return Promise.resolve(n).then(resolve, reject);
+  },
+});
+
+// 聚合：Post.aggregate(pipeline).option({maxTimeMS}) → Promise<result[]>
+const mockAggregate = (result) => ({
+  maxTimeMS: jest.fn().mockReturnThis(),
+  option: jest.fn().mockReturnThis(),
+  then(resolve, reject) {
+    return Promise.resolve(result).then(resolve, reject);
   },
 });
 
@@ -96,7 +107,7 @@ describe('browseService 纯函数', () => {
   });
 
   it('buildNovelFilter 仅在传入时附加 taskId/时间范围', () => {
-    expect(service.buildNovelFilter()).toEqual({ postType: { $in: ['novel', 'text'] } });
+    expect(service.buildNovelFilter()).toEqual({ postType: { $in: ['novel', 'text'] }, isSeriesHead: true });
     const f = service.buildNovelFilter({ startDate: '2026-03-01' });
     expect(f.taskId).toBeUndefined();
     expect(f.createdAt.$gte).toEqual(new Date('2026-03-01'));
@@ -358,16 +369,15 @@ describe('browseService 小说列表/搜索', () => {
   });
 
   it('listNovels skip 分页：limit 上限 100，首次计数未命中缓存', async () => {
-    Post.find.mockReturnValue(mockQuery(novels));
+    Post.find.mockReturnValue(mockQuery([{ _id: 'n1', title: '书1', content: 'a'.repeat(210) }]));
     Post.countDocuments.mockReturnValue(mockCount(42));
 
     const { items, pagination } = await service.listNovels({ page: '1', limit: '500' }, adminUser);
 
-    expect(items).toHaveLength(2);
+    expect(items).toHaveLength(1);
     expect(items[0].wordCount).toBe(210);
     expect(pagination.limit).toBe(100);
     expect(pagination.total).toBe(42);
-    expect(pagination.lastId).toBe('n2');
     expect(Post.countDocuments).toHaveBeenCalledTimes(1);
 
     // 第二次命中缓存，不再 countDocuments
@@ -397,47 +407,59 @@ describe('browseService 小说列表/搜索', () => {
     await service.listNovels({ page: '1', limit: '20' }, normalUser);
 
     expect(Post.find).toHaveBeenCalledWith(
-      expect.objectContaining({ postType: { $in: ['novel', 'text'] }, $or: normalVisibility.$or })
+      expect.objectContaining({ postType: { $in: ['novel', 'text'] }, isSeriesHead: true, $or: normalVisibility.$or })
     );
   });
 
   it('listNovels admin 强制索引提示，普通用户（$or）不强制', async () => {
     const qAdmin = mockQuery([]);
     Post.find.mockReturnValueOnce(qAdmin);
+    Post.countDocuments.mockReturnValue(mockCount(0));
     await service.listNovels({ page: '1', limit: '20' }, adminUser);
-    expect(qAdmin.hint).toHaveBeenCalledWith({ postType: 1, createdAt: -1 });
+    expect(qAdmin.hint).toHaveBeenCalledWith({ isSeriesHead: 1, postType: 1, createdAt: -1 });
 
     const qUser = mockQuery([]);
-    Post.countDocuments.mockReturnValue(mockCount(0));
     Post.find.mockReturnValueOnce(qUser);
     await service.listNovels({ page: '1', limit: '20' }, normalUser);
     expect(qUser.hint).not.toHaveBeenCalled();
   });
 
-  it('listNovels 游标分页（lastId）使用 _id $lt 条件', async () => {
-    const q = mockQuery([novels[1]]);
-    Post.find.mockReturnValue(q);
-    Post.countDocuments.mockReturnValue(mockCount(42));
+  it('listNovels 系列代表帖：拉取全章节聚合统计', async () => {
+    const head = { _id: 'c1', title: '修仙 1', series: '修仙', chapterNo: 1, content: 'head', author: 'a', createdAt: new Date('2026-01-01') };
+    Post.find.mockReturnValueOnce(mockQuery([head]));
+    Post.find.mockReturnValueOnce(mockQuery([
+      { _id: 'c1', series: '修仙', chapterNo: 1, content: 'c1c1', views: 3, likes: 1, replies: 0, createdAt: new Date('2026-01-01') },
+      { _id: 'c2', series: '修仙', chapterNo: 2, content: 'c2c2c2', views: 5, likes: 2, replies: 1, createdAt: new Date('2026-01-02') },
+    ]));
+    Post.countDocuments.mockReturnValue(mockCount(1));
 
-    const { items, pagination } = await service.listNovels(
-      {
-        lastId: 'n1',
-        sortBy: '-createdAt',
-        limit: '1',
-      },
-      adminUser
-    );
+    const { items } = await service.listNovels({ page: '1', limit: '20' }, adminUser);
 
-    const filter = Post.find.mock.calls[0][0];
-    expect(filter._id).toEqual({ $lt: 'n1' });
-    expect(q.sort).toHaveBeenCalledWith({ _id: -1 });
-    expect(q.hint).toHaveBeenCalled();
-    expect(pagination.lastId).toBe('n2');
     expect(items).toHaveLength(1);
+    expect(items[0].series).toBe('修仙');
+    expect(items[0].title).toBe('修仙');
+    expect(items[0].chapterCount).toBe(2);
+    expect(items[0].wordCount).toBe(10);
+    expect(items[0].views).toBe(8);
+    expect(items[0].likes).toBe(3);
+    expect(items[0].replies).toBe(1);
+    expect(items[0].excerpt).toBe('c1c1');
+  });
+
+  it('listNovels 无系列单帖：用自身字段，chapterCount=1', async () => {
+    Post.find.mockReturnValue(mockQuery([{ _id: 'n1', title: '单帖', content: 'hello', views: 2, createdAt: new Date() }]));
+    Post.countDocuments.mockReturnValue(mockCount(1));
+
+    const { items } = await service.listNovels({ page: '1', limit: '20' }, adminUser);
+    expect(items).toHaveLength(1);
+    expect(items[0].series).toBeNull();
+    expect(items[0].title).toBe('单帖');
+    expect(items[0].chapterCount).toBe(1);
+    expect(items[0].wordCount).toBe(5);
   });
 
   it('searchNovels 文本搜索走 $text 且按相关性排序', async () => {
-    const q = mockQuery([novels[0]]);
+    const q = mockQuery([{ _id: 'n1', title: '书1', content: 'a'.repeat(210) }]);
     Post.find.mockReturnValue(q);
     Post.countDocuments.mockReturnValue(mockCount(1));
 
@@ -448,6 +470,8 @@ describe('browseService 小说列表/搜索', () => {
 
     const filter = Post.find.mock.calls[0][0];
     expect(filter.$text).toEqual({ $search: '修仙' });
+    // 第二个参数为 score 投影
+    expect(Post.find.mock.calls[0][1]).toEqual({ score: { $meta: 'textScore' } });
     expect(q.sort).toHaveBeenCalledWith({ score: { $meta: 'textScore' }, createdAt: -1 });
     expect(pagination.total).toBe(1);
     expect(items[0].excerpt).toHaveLength(200);
@@ -521,6 +545,35 @@ describe('browseService 小说列表/搜索', () => {
       { $inc: { views: 1 } },
       { new: true }
     );
+  });
+
+  it('getNovelContent 系列帖子：拉取全部章节按 chapterNo 拼接，标题取系列名', async () => {
+    // findOneAndUpdate 返回带 series 的 Mongoose 文档（含 toObject）
+    const doc = {
+      _id: 'ch2',
+      title: '修仙 2',
+      series: '修仙',
+      content: 'c2',
+      toObject: () => ({ _id: 'ch2', title: '修仙 2', series: '修仙', content: 'c2' }),
+    };
+    Post.findOneAndUpdate.mockResolvedValue(doc);
+    // 章节查询：两章，chapterNo 2 和 1
+    Post.find.mockReturnValue(
+      mockQuery([
+        { _id: 'ch1', title: '修仙 1', chapterNo: 1, content: 'c1' },
+        { _id: 'ch2', title: '修仙 2', chapterNo: 2, content: 'c2' },
+      ])
+    );
+
+    const novel = await service.getNovelContent('ch2', adminUser);
+
+    // 以系列名为标题，content 为两章拼接，首章为锚点 id
+    expect(novel.title).toBe('修仙');
+    expect(novel.chapterCount).toBe(2);
+    expect(novel._id).toBe('ch1');
+    expect(novel.content).toContain('【第1章】修仙 1');
+    expect(novel.content).toContain('【第2章】修仙 2');
+    expect(novel.content.indexOf('【第1章】')).toBeLessThan(novel.content.indexOf('【第2章】'));
   });
 });
 

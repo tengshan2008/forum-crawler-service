@@ -4,6 +4,27 @@
 
 实现了从 **URL-based 去重** 升级到 **Content-Hash-based 去重**的智能重复检测系统。
 
+## v2.18.3 口径更新：按用户隔离 + image 任务指纹
+
+**去重按 userId 分区**：sourceUrl 精确查询与 contentHash 撞车查询都携带当前任务的 `userId`，
+判定只在同一用户的帖子集合内进行——不同用户爬同一个 URL/同一内容，各自名下各存一份副本。
+对应索引：`{sourceUrl:1,userId:1}` 复合唯一、`{userId:1,contentHash:1}`（取代旧的全局
+`sourceUrl` 唯一索引与单列 contentHash 索引，切换由 `backend/scripts/migratePostDedupIndexes.js`
+完成，部署前置见 [deployment.md](../deployment.md)）。
+
+**image 任务指纹**：image 类型存库时 `content` 是「楼主发布了 N 张图片」短文案（真实图片在
+`media`），身份不能按短文案计算：
+
+| 维度 | image 有图 | image 无图 | novel / mixed / 其他 |
+|------|-----------|-----------|---------------------|
+| contentHash 指纹 | 楼主图片原始 URL 的**有序列表** `MD5(url1\nurl2…)`（换图/加图/调序即变） | 退回解析正文；正文也空则用短文案兜底（防无图帖互撞） | 解析正文 MD5（历史口径不变） |
+| contentLength | 实际存库短文案长度（与 v2.16.1 `$strLenCP(content)` 回填口径一致） | 同左 | `len(正文)` |
+
+实现集中在 `crawler/lib/post_builder.py` 的 `derive_post_identity()` 与
+`image_content_override()`，crawl.py 三个计算点（批量/单帖/文档准备）统一调用。
+存量 image 帖子旧哈希为原始正文口径，与新指纹不匹配，同用户重爬会走 same_url 保守跳过
+（不覆盖、不重下图片）；novel/text 存量数据完全不受影响。
+
 ## 修改内容
 
 ### 1. 数据库模型 (`backend/src/models/Post.js`)
@@ -34,14 +55,15 @@ import hashlib
 - 规范化内容以确保一致性
 - 返回 32 位十六进制哈希
 
-#### 重写 `_is_post_exist()` 方法
-- 参数新增：`content_hash` 可选参数
-- 检查逻辑分为三层：
-  1. 检查相同内容哈希（可能不同URL）→ `content_duplicate`
-  2. 检查相同URL，再比较哈希值
-     - 相同内容 → `duplicate`
-     - 不同内容 → `shouldUpdate=True`（允许覆盖更新）
-  3. 都不存在 → 允许保存
+#### `_is_post_exist()` 方法（判定逻辑已下沉 `lib/dedup.evaluate_duplicate`）
+- 入参：`content_hash`、`content_length`；DB 查询在调用方完成，纯函数只做决策，
+  返回 `{'action': 'save'|'update'|'skip', 'reason', 'message', 'detail'}`
+- 检查顺序：
+  1. URL 未命中，再查相同内容哈希（可能不同 URL）→ `skip/content_duplicate`，否则 `save`
+  2. URL 命中但旧记录缺 `contentLength`（回填前历史数据）：按正文长度兜底——
+     新内容更长 → `update`，等长 → `skip/unchanged`，更短 → `skip/shorter_content`
+  3. 正常记录只比对哈希：相同 → `skip/duplicate`；哈希不同或信息不全 →
+     `skip/same_url` 保守跳过（仅当新内容连长度都没有时才 `update`）
 
 #### 更新 `_save_post()` 方法
 - 计算内容哈希并保存到 MongoDB
@@ -77,35 +99,37 @@ import hashlib
     ↓
 计算内容MD5哈希
     ↓
-调用 _is_post_exist(url, hash)
-    ├─ 返回 exists=False → 保存为新帖子 ✓
-    ├─ 返回 exists=True, reason='duplicate' → 跳过（完全重复）
-    ├─ 返回 exists=True, reason='content_duplicate' → 跳过（内容相同，URL不同）
-    └─ 返回 shouldUpdate=True → 覆盖更新已存在的帖子 ↻
+调用 _is_post_exist(url, hash, length)
+    ├─ 返回 action='save' → 保存为新帖子 ✓
+    ├─ 返回 action='skip', reason='duplicate' → 跳过（完全重复）
+    ├─ 返回 action='skip', reason='content_duplicate' → 跳过（内容相同，URL不同）
+    └─ 返回 action='update' → 覆盖更新已存在的帖子 ↻
     ↓
 任务完成，生成统计报告
 ```
 
 ## 去重决策树
 
+判定纯函数为 `lib/dedup.evaluate_duplicate`，返回 action 三态（`skip` 的 reason
+受后端 Task 模型 `skipReasons` enum 约束）：
+
 ```
-检查 contentHash：
-├─ 如果存在相同 contentHash 的帖子（URL不同）
-│  └─ → 跳过，原因: content_duplicate （相同内容已存在）
+URL 未命中：
+├─ 存在相同 contentHash 的帖子（URL 不同）
+│  └─ → skip / content_duplicate （相同内容已存在）
+└─ 哈希也未命中
+   └─ → save （保存为新帖子）
+
+URL 命中：
+├─ 旧记录缺 contentLength（回填前历史数据），按正文长度兜底
+│  ├─ 新内容更长 → update（覆盖更新）
+│  ├─ 长度相同   → skip / unchanged
+│  └─ 新内容更短 → skip / shorter_content（保留原内容）
 │
-检查 sourceUrl：
-├─ URL 不存在
-│  └─ → 保存为新帖子 ✓
-│
-├─ URL 存在：
-│  ├─ 新内容 contentHash（无法比较）
-│  │  └─ → 跳过，原因: same_url （保守策略）
-│  │
-│  ├─ contentHash 相同
-│  │  └─ → 跳过，原因: duplicate （完全重复）
-│  │
-│  └─ contentHash 不同
-│     └─ → shouldUpdate=True （内容已更新，覆盖保存）
+└─ 正常记录（有 contentLength），只比对 contentHash
+   ├─ 哈希相同   → skip / duplicate（完全重复）
+   ├─ 哈希不同且新内容无长度 → update（历史宽松路径）
+   └─ 哈希不同/信息不全 → skip / same_url（保守策略，不自动覆盖）
 ```
 
 ## 性能影响
@@ -135,19 +159,22 @@ import hashlib
 
 ---
 
-### ✅ 场景 2: URL内容更新（相同URL、不同内容）
+### ✅ 场景 2: 历史旧帖内容变长（旧记录无 contentLength，新内容更长）
 
 **输入**：
 ```
-第一次采集: URL1 内容A → 保存（hash_A）
-第二次采集: URL1 内容B → 检查
+第一次采集: URL1 内容A（回填前旧数据，无 contentLength）
+第二次采集: URL1 内容A+追加（更长）→ 检查
 ```
 
 **预期**：
-- 检测到 `shouldUpdate=True`
-- 覆盖保存新内容（hash_B）
+- 正文长度兜底比对，新内容更长
+- `action='update'`，覆盖保存新内容（contentHash 更新为 hash_B）
 
-**实现**：✓ `_is_post_exist()` 比较 contentHash 发现不同
+**实现**：✓ `lib/dedup.evaluate_duplicate` 长度兜底分支
+
+> 注：双方都有 contentLength 的正常记录只信哈希，哈希不同一律 `same_url`
+> 保守跳过（不因楼主改帖自动覆盖），该行为由 `test_dedup.py` 锁定。
 
 ---
 
@@ -178,7 +205,7 @@ import hashlib
 - 检测为不存在
 - 保存为新帖子
 
-**实现**：✓ `_is_post_exist()` 返回 exists=False
+**实现**：✓ `_is_post_exist()` 返回 `action='save'`
 
 ## 使用说明
 

@@ -3,6 +3,10 @@ const AppError = require('../utils/AppError');
 const catchAsync = require('../utils/catchAsync');
 const { sendSuccess } = require('../utils/respond');
 
+// 单帖写操作的所有权约束：管理员可管理任意用户的帖子，普通用户仅限本人
+// （口径与 taskService.scopedQuery、browseService.buildVisibilityFilter 一致）
+const buildOwnerScope = (user) => (user.role === 'admin' ? {} : { userId: user.userId });
+
 // Get all posts
 exports.getAllPosts = catchAsync(async (req, res) => {
   const { taskId, postType, status, page = 1, limit = 20, sort = '-createdAt' } = req.query;
@@ -118,7 +122,7 @@ exports.updatePost = catchAsync(async (req, res) => {
   }
 
   const post = await Post.findOneAndUpdate(
-    { _id: req.params.id, userId: req.user.userId },
+    { _id: req.params.id, ...buildOwnerScope(req.user) },
     updates,
     {
       new: true,
@@ -135,7 +139,7 @@ exports.updatePost = catchAsync(async (req, res) => {
 
 // Delete post
 exports.deletePost = catchAsync(async (req, res) => {
-  const post = await Post.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+  const post = await Post.findOneAndDelete({ _id: req.params.id, ...buildOwnerScope(req.user) });
 
   if (!post) {
     throw new AppError('Post not found', 404);

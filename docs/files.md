@@ -51,7 +51,8 @@ backend/
     ├── migrateTasksUserIds.js                # 存量任务 userId 回填（归属首个 admin，幂等）
     ├── migrateCollectionOwners.js            # 存量收藏夹 userId 回填（幂等，v2.12.0）
     ├── migratePostsUserIds.js                # 存量帖子 userId 回填（幂等，v2.13.0 内容数据隔离前置）
-    └── backfillContentLength.js              # 存量帖子 contentLength 回填（$strLenCP 服务端计算，幂等+守卫更新，v2.16.1）
+    ├── backfillContentLength.js              # 存量帖子 contentLength 回填（$strLenCP 服务端计算，幂等+守卫更新，v2.16.1）
+    └── migratePostDedupIndexes.js            # posts 去重索引切换：{sourceUrl,userId} 复合唯一 + {userId,contentHash}，先查重后建后删（--dry-run/--apply，幂等，v2.18.3 部署前置）
 ```
 
 ### 爬虫文件 (Crawler - Python)
@@ -67,8 +68,8 @@ crawler/
 ├── lib/                                      # 纯函数库（pytest 直接覆盖）
 │   ├── text_utils.py                         # 文本清洗/内容哈希/乱码检测
 │   ├── url_utils.py                          # URL 提取与 meta 跳转解析
-│   ├── dedup.py                              # 去重判定纯函数（v2.2.0 下沉）
-│   ├── post_builder.py                       # 媒体处理/文档构建/upsert 载荷（v2.2.0 下沉）
+│   ├── dedup.py                              # 去重判定纯函数（无 I/O/日志副作用，返回 save/update/skip；v2.2.0 下沉，v2.18.1 扁平化+日志上移）
+│   ├── post_builder.py                       # 媒体处理/文档构建/upsert 载荷（v2.2.0 下沉；v2.18.3 新增 image_content_override 短文案与 derive_post_identity 去重身份：image 指纹=图片 URL 有序列表、长度=存库短文案，其余类型沿用正文哈希）
 │   └── pause_gate.py                         # 暂停闸门纯逻辑（v2.17.0：轮询 paused 状态阻塞/恢复）
 ├── logs/                                     # 任务日志落盘 task_<task_id>.log（已被 .gitignore 覆盖）
 └── tests/                                    # Pytest 单元测试

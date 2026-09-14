@@ -367,6 +367,18 @@ docker exec forum-crawler-mongo mongorestore /backup
 docker exec forum-crawler-backend node scripts/migrateCollectionOwners.js
 ```
 
+**v2.18.3 部署必须先执行索引迁移，再上新爬虫代码**（去重从全局改为按 userId 隔离）：
+
+```bash
+# 1) 先演练：列出索引、预检重复 sourceUrl、打印将删旧索引（无任何写入）
+docker exec forum-crawler-backend node scripts/migratePostDedupIndexes.js --dry-run
+# 2) 无重复后执行：创建 {sourceUrl,userId} 复合唯一与 {userId,contentHash}，再删旧全局索引
+docker exec forum-crawler-backend node scripts/migratePostDedupIndexes.js --apply
+# 3) 确认输出中旧索引 sourceUrl_1 / contentHash_1 已删除后，再部署新爬虫代码
+```
+
+注意：旧索引未删除前，跨用户相同 sourceUrl 写入仍会被全局唯一索引拒绝（E11000），故迁移是新爬虫代码的前置条件；`contentHash_1` 删除后，若仍有升级前启动的长时爬取进程在跑，其 contentHash 查询会走全表扫描，建议迁移前确认无在跑的爬取任务（脚本幂等，新索引已存在时自动跳过创建）。
+
 ---
 
 ## 安全建议

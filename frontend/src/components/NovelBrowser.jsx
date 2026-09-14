@@ -396,6 +396,9 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                         <div className='novel-meta'>
                           <Space split='|'>
                             <span>作者: {novel.author || '未知'}</span>
+                            {novel.series && novel.chapterCount > 1 && (
+                              <span>共 {novel.chapterCount} 章</span>
+                            )}
                             <span>
                               字数:{' '}
                               {novel.wordCount?.toLocaleString() || 0}
@@ -414,8 +417,14 @@ const NovelBrowser = ({ filtersVisible = true }) => {
                             {novel.excerpt || '暂无摘要'}
                           </p>
                           {((novel.tags || []).length > 0 ||
-                            (novel.visibility && novel.visibility !== 'private')) && (
+                            (novel.visibility && novel.visibility !== 'private') ||
+                            novel.series) && (
                             <div className='novel-badges'>
+                              {novel.series && (
+                                <Tag color='blue' style={{ marginInlineEnd: 4 }}>
+                                  系列
+                                </Tag>
+                              )}
                               {novel.visibility && novel.visibility !== 'private' && (
                                 <VisibilityTag visibility={novel.visibility} />
                               )}

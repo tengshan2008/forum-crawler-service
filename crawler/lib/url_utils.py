@@ -2,7 +2,7 @@
 
 import re
 import sys
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
@@ -81,11 +81,23 @@ def build_pagination_url(original_url, page_num):
         return None
 
 
+def _extract_page_number(href):
+    """从链接中提取页码，兼容 t66y (?page=N) 与 crazyhome (/page/N/) 两种格式。"""
+    match = re.search(r'page=(\d+)', href)
+    if match:
+        return int(match.group(1))
+    match = re.search(r'/page/(\d+)/?', href)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def extract_page_numbers(html, max_allowed_pages=1000):
     """从HTML中提取总页数 - 带最大页数限制。
 
     优先在分页导航区域（class 含 page/pagenav 等）内查找，
     找不到时回退到全页面链接。
+    兼容 t66y (?page=N) 与 crazyhome (/page/N/) 两种分页格式。
 
     Returns:
         最大页码（不超过 max_allowed_pages）；无分页线索时返回 1
@@ -101,18 +113,18 @@ def extract_page_numbers(html, max_allowed_pages=1000):
             links = pagination.find_all('a')
             for link in links:
                 href = link.get('href', '')
-                match = re.search(r'page=(\d+)', href)
-                if match:
-                    page_numbers.add(int(match.group(1)))
+                num = _extract_page_number(href)
+                if num:
+                    page_numbers.add(num)
 
         # 2. 如果分页导航区域没找到，再尝试查找所有链接（兼容性）
         if not page_numbers:
             all_links = soup.find_all('a')
             for link in all_links:
                 href = link.get('href', '')
-                match = re.search(r'page=(\d+)', href)
-                if match:
-                    page_numbers.add(int(match.group(1)))
+                num = _extract_page_number(href)
+                if num:
+                    page_numbers.add(num)
 
         if page_numbers:
             max_page = max(page_numbers)
@@ -125,56 +137,108 @@ def extract_page_numbers(html, max_allowed_pages=1000):
 
 
 def has_next_page(html, current_page):
-    """检查当前页是否有下一页链接（用于逐页采集）"""
+    """检查当前页是否有下一页链接（用于逐页采集）。
+
+    优先在分页导航容器（class 含 pagination/pagenav/pages 等）内判定，
+    避免正文/侧栏中恰好含 /page/N/ 的链接被误判；容器内找不到再回退到全页面。
+
+    判定为有下一页（满足其一）：
+    1. 存在指向下一页页码（current_page+1）的链接；
+    2. 分页容器内存在 class 含 next/older 的「下一页/较旧文章」按钮（crazyhome 该按钮文本为空）。
+
+    兼容 t66y (?page=N) 与 crazyhome (/page/N/) 两种分页格式。
+    """
     try:
         soup = BeautifulSoup(html, 'html.parser')
         next_page = current_page + 1
 
-        # 查找所有可能的下一页链接
-        all_links = soup.find_all('a')
-        for link in all_links:
-            href = link.get('href', '')
-            # 检查是否存在指向下一页的链接
-            match = re.search(r'page=(\d+)', href)
-            if match and int(match.group(1)) == next_page:
-                return True
+        def _container_has_next(scope):
+            for link in scope.find_all('a', href=True):
+                href = link.get('href', '')
+                if _extract_page_number(href) == next_page:
+                    return True
+                # 显式的「下一页」按钮（crazyhome 为 <li class="next"><a></a></li>，文本可能为空）
+                parent_cls = ' '.join(link.parent.get('class', []) if link.parent else [])
+                link_cls = ' '.join(link.get('class', []))
+                if re.search(r'\b(next|older)\b', f'{parent_cls} {link_cls}', re.I) and href.strip():
+                    return True
+            return False
 
-        return False
+        # 1. 优先在分页导航容器内判定
+        for scope in soup.find_all(['nav', 'div', 'ul', 'ol'],
+                                   class_=re.compile(r'(pagination|pagenav|pages|page-nav|wp-pagenavi)', re.I)):
+            if _container_has_next(scope):
+                return True
+        # 2. 回退：全页面扫描（兼容非标准分页结构）
+        return _container_has_next(soup)
     except Exception as e:
         print(f"⚠ 检查下一页失败: {e}", file=sys.stderr, flush=True)
         return False
 
 
-def build_section_pagination_url(section_url, page_num):
-    """为版块构建分页URL（替换或追加 page 参数）"""
+def _uses_wordpress_path_pagination(section_url):
+    """判断版块 URL 是否使用 WordPress 的 /page/N/ 路径分页。
+
+    crazyhome（WordPress 站点）的分类页 /category/<x>/、标签页 /tag/<x>/、
+    首页等所有归档页统一用 /page/N/，而不是 ?page=N。
+    判定信号：域名为 crazyhome2000.com，或路径含 /category/、/tag/ 段。
+    """
     try:
-        # 检查是否已有page参数
+        parsed = urlparse(section_url)
+        if 'crazyhome2000.com' in (parsed.netloc or ''):
+            return True
+        path = parsed.path or ''
+        return '/category/' in path or '/tag/' in path
+    except Exception:
+        return '/category/' in section_url or '/tag/' in section_url
+
+
+def build_section_pagination_url(section_url, page_num):
+    """为版块构建分页URL（替换或追加分页段）。
+
+    兼容两类格式：
+    - WordPress 路径分页（crazyhome 的分类/标签/首页）：/page/{page_num}/
+    - 查询串分页（t66y 等）：?page={page_num}
+
+    - URL 中已有 /page/N/ → 替换为 /page/{page_num}/
+    - URL 中已有 ?page=N → 替换为 ?page={page_num}
+    - 无分页段：page_num==1 原样返回；
+      WordPress 归档页（crazyhome / /category/ / /tag/）追加 /page/{page_num}/，
+      其余追加 ?page={page_num}
+    """
+    try:
+        # WordPress /page/N/ 或 t66y ?page=N 已存在：直接替换页码
+        if re.search(r'/page/\d+/?', section_url):
+            return re.sub(r'/page/\d+/?', f'/page/{page_num}/', section_url)
         if 'page=' in section_url:
-            # 替换现有page参数
             return re.sub(r'page=\d+', f'page={page_num}', section_url)
-        elif '?' in section_url:
-            # 已有其他参数，添加page参数
+        # 无现有分页段
+        if page_num == 1:
+            return section_url
+        # WordPress 归档页（crazyhome 分类/标签/首页）：追加 /page/N/
+        if _uses_wordpress_path_pagination(section_url):
+            base = section_url.split('?', 1)[0].rstrip('/')
+            return f"{base}/page/{page_num}/"
+        # 默认：?page=N（已有其他 query 时用 & 拼接）
+        if '?' in section_url:
             return f"{section_url}&page={page_num}"
-        else:
-            # 无参数，添加page参数
-            return f"{section_url}?page={page_num}"
+        return f"{section_url}?page={page_num}"
     except Exception as e:
         print(f"⚠ 构建版块分页URL失败: {e}", file=sys.stderr, flush=True)
         return section_url
 
 
 def extract_page_from_url(url):
-    """从URL中提取page参数值。
+    """从URL中提取页码。
+
+    兼容 t66y (?page=N) 与 crazyhome (/page/N/) 两种格式。
 
     Returns:
-        页码；如果没有page参数则返回 None
+        页码；如果没有分页段则返回 None
     """
     try:
-        # 查找 page=数字 模式
-        match = re.search(r'page=(\d+)', url)
-        if match:
-            return int(match.group(1))
-        return None
+        num = _extract_page_number(url)
+        return num
     except Exception as e:
         print(f"⚠ 提取URL中的page参数失败: {e}", file=sys.stderr, flush=True)
         return None

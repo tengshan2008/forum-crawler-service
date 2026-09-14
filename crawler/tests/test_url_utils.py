@@ -66,6 +66,34 @@ class TestSectionPaginationUrl:
             == 'https://example.com/list?f=1&page=3'
         )
 
+    def test_第1页原样返回(self):
+        url = 'https://www.crazyhome2000.com/tag/%e6%88%91%e6%9c%89%e4%b8%80%e5%89%91/'
+        assert build_section_pagination_url(url, 1) == url
+
+    def test_crazyhome标签页追加路径分页(self):
+        url = 'https://www.crazyhome2000.com/tag/%e6%88%91%e6%9c%89%e4%b8%80%e5%89%91/'
+        assert (
+            build_section_pagination_url(url, 2)
+            == 'https://www.crazyhome2000.com/tag/%e6%88%91%e6%9c%89%e4%b8%80%e5%89%91/page/2/'
+        )
+
+    def test_crazyhome分类页追加路径分页(self):
+        url = 'https://www.crazyhome2000.com/category/%e7%8e%84%e5%b9%bb%e4%b8%96%e7%95%8c/'
+        assert (
+            build_section_pagination_url(url, 3)
+            == 'https://www.crazyhome2000.com/category/%e7%8e%84%e5%b9%bb%e4%b8%96%e7%95%8c/page/3/'
+        )
+
+    def test_crazyhome已有路径分页时替换页码(self):
+        url = 'https://www.crazyhome2000.com/tag/abc/page/2/'
+        assert build_section_pagination_url(url, 5) == 'https://www.crazyhome2000.com/tag/abc/page/5/'
+
+    def test_非crazyhome的tag路径也按路径分页(self):
+        assert (
+            build_section_pagination_url('https://blog.example.com/tag/x/', 2)
+            == 'https://blog.example.com/tag/x/page/2/'
+        )
+
 
 class TestExtractPageFromUrl:
     def test_有page参数(self):
@@ -102,3 +130,23 @@ class TestHasNextPage:
     def test_不存在下一页链接(self):
         html = '<div><a href="read.php?tid=1&page=2">上一页</a></div>'
         assert has_next_page(html, 2) is False
+
+    def test_crazyhome空文本next按钮也算下一页(self):
+        # crazyhome 分页：<li class="next"><a href=".../page/2/"></a></li>，按钮文本为空
+        html = (
+            '<ul class="pagination">'
+            '<li class="active"><a href="/tag/x/">1</a></li>'
+            '<li class="next"><a href="https://www.crazyhome2000.com/tag/x/page/2/"></a></li>'
+            '</ul>'
+        )
+        assert has_next_page(html, 1) is True
+
+    def test_末页仅有上一页无next按钮(self):
+        html = (
+            '<ul class="pagination">'
+            '<li class="previous"><a href="https://www.crazyhome2000.com/tag/x/page/2/"></a></li>'
+            '<li class="active"><a>3</a></li>'
+            '</ul>'
+        )
+        assert has_next_page(html, 3) is False
+

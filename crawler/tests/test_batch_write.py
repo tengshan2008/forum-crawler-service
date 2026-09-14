@@ -67,7 +67,7 @@ def test_flush_全部成功_一次写库且按序回调():
     assert len(call['operations']) == 2
     op = call['operations'][0]
     assert isinstance(op, UpdateOne)
-    assert op._filter == {'sourceUrl': 'http://a'}
+    assert op._filter == {'sourceUrl': 'http://a', 'userId': 'u1'}
     assert op._doc['$set']['title'] == '标题A'
     assert op._upsert is True
 
@@ -83,7 +83,7 @@ def test_flush_更新载荷通过pymongo官方校验_防ReplaceOne误用回归()
     crawler._flush_post_buffer([make_item('http://a', '标题A')])
     op = crawler.posts_collection.calls[0]['operations'][0]
     assert isinstance(op, UpdateOne)
-    assert list(op._doc.keys()) == ['$set', '$setOnInsert']
+    assert set(op._doc.keys()) == {'$set', '$setOnInsert', '$unset'}
     validate_ok_for_update(op._doc)  # pymongo 官方校验：合法 update 载荷，不抛即通过
 
 
@@ -122,7 +122,7 @@ def test_flush_空缓冲_不触发写库():
 def test_save_post_单帖路径_准备并立即写库返回True(monkeypatch):
     crawler = make_crawler()
     monkeypatch.setattr(crawl, 'initialize_image_dirs', lambda: None)
-    monkeypatch.setattr(crawler, '_calculate_content_hash', lambda content: 'hash1')
+    monkeypatch.setattr(crawler, '_derive_post_identity', lambda post_data, task_type: ('hash1', len(post_data['content'])))
     monkeypatch.setattr(
         crawl, 'build_media_and_content',
         lambda post_data, task_type, task_id, download: ([], None),
@@ -134,18 +134,18 @@ def test_save_post_单帖路径_准备并立即写库返回True(monkeypatch):
     assert result is True
     assert len(crawler.posts_collection.calls) == 1
     op = crawler.posts_collection.calls[0]['operations'][0]
-    assert op._filter == {'sourceUrl': 'http://p'}
+    assert op._filter == {'sourceUrl': 'http://p', 'userId': 'u1'}
     assert op._doc['$set']['contentHash'] == 'hash1'
 
 
 def test_save_post_准备阶段异常返回False且不写库(monkeypatch):
     crawler = make_crawler()
 
-    def boom(content):
+    def boom(post_data, task_type):
         raise ValueError('hash failed')
 
     monkeypatch.setattr(crawl, 'initialize_image_dirs', lambda: None)
-    monkeypatch.setattr(crawler, '_calculate_content_hash', boom)
+    monkeypatch.setattr(crawler, '_derive_post_identity', boom)
 
     post_data = {'title': '标题', 'content': '正文', 'author': '作者', 'images': []}
     result = crawler._save_post(post_data, 'http://p', 'novel')

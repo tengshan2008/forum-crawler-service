@@ -675,7 +675,7 @@ Content-Type: application/json
 **请求体**（仅白名单字段生效，其余忽略）
 - 可更新字段：`title`、`content`、`visibility`（public/private/protected）、`status`（active/archived/flagged）、`tags`
 - `userId`、`taskId`、`sourceUrl`、`contentHash`、`postType`、`likes/views/replies` 等不在白名单，传入即忽略（防批量赋值篡改）
-- 仅所有者本人可更新（非所有者返回 404）
+- 权限：仅所有者本人可更新；管理员可更新任意用户的内容。非所有者且非管理员返回 404（不泄露存在性）
 
 ---
 
@@ -688,6 +688,9 @@ DELETE /api/posts/:id
 
 **参数**
 - `id` (string): 内容 ID
+
+**权限**
+- 仅所有者本人可删除；管理员可删除任意用户的内容。非所有者且非管理员返回 404（不泄露存在性）
 
 ---
 

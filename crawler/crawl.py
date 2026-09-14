@@ -46,8 +46,8 @@ from bson import ObjectId
 
 # 导入图片下载器
 from image_downloader import download_images, initialize_image_dirs
-from lib.dedup import evaluate_duplicate
-from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates, dedupe_by_source_url
+from lib.dedup import evaluate_duplicate, SKIP, UPDATE, LEGACY_NO_LENGTH
+from lib.post_builder import build_media_and_content, build_post_document, build_upsert_updates, dedupe_by_source_url, derive_post_identity
 from lib.pause_gate import wait_while_paused
 
 # 配置日志
@@ -58,6 +58,29 @@ POST_WRITE_BATCH_SIZE = 20
 
 # 暂停闸门轮询间隔（秒）：任务被暂停后，爬虫在帖子/分页边界阻塞，按此间隔轮询恢复状态
 PAUSE_POLL_INTERVAL = 3
+
+
+def _log_duplicate_decision(url_post, result, content_length):
+    """输出去重判定的人工排查日志（lib.dedup 是无副作用纯函数，日志由调用方负责）。"""
+    # 旧记录既无 contentLength 也无正文可推算长度（回填前历史数据）
+    if result.get('detail') == LEGACY_NO_LENGTH:
+        print(f"⚠ 现有记录无长度信息（旧数据），新内容长度：{content_length} 字符，将继续用内容哈希进行检查", flush=True)
+
+    # 旧记录缺 contentLength 时才走的正文长度兜底比对（正常记录只信哈希）
+    if (
+        content_length is not None
+        and url_post
+        and url_post.get('contentLength') is None
+        and url_post.get('content')
+    ):
+        old_length = len(url_post['content'])
+        print(f"📏 内容长度对比（旧：{old_length} → 新：{content_length}）", flush=True)
+        if result['action'] == UPDATE:
+            print(f"📏 新内容更长，准备覆盖更新", flush=True)
+        elif result['reason'] == 'unchanged':
+            print(f"📏 内容长度相同，帖子未更新，快速跳过", flush=True)
+        elif result['reason'] == 'shorter_content':
+            print(f"📏 新内容更短，保留原内容", flush=True)
 
 
 class _Tee:
@@ -260,7 +283,7 @@ class ForumCrawler:
             'User-Agent': random.choice(user_agents),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
             'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
+            'Accept-Encoding': 'gzip, deflate',
             'DNT': '1',
             'Connection': 'keep-alive',
             'Upgrade-Insecure-Requests': '1',
@@ -274,12 +297,25 @@ class ForumCrawler:
             'sec-ch-ua-platform': '"Windows"'
         }
     
+    @staticmethod
+    def _detect_site(url):
+        """根据 URL 域名识别采集站点。
+
+        Returns:
+            'crazyhome' | 't66y'（未知站点默认 t66y，保持原有行为）
+        """
+        if not url:
+            return 't66y'
+        if 'crazyhome2000.com' in url:
+            return 'crazyhome'
+        return 't66y'
+
     def is_pinned_post(self, post_id):
         """检查是否是置顶规则帖子（黑名单中的帖子）
-        
+
         Args:
             post_id: 帖子ID（tid）
-            
+
         Returns:
             bool: True 如果在黑名单中
         """
@@ -360,6 +396,8 @@ class ForumCrawler:
                     headers['Referer'] = 'https://t66y.com/'
                 elif 'tu.ymawv.la' in url:
                     headers['Referer'] = 'https://tu.ymawv.la/'
+                elif 'crazyhome2000.com' in url:
+                    headers['Referer'] = 'https://www.crazyhome2000.com/'
                 
                 response = self.session.get(
                     url, 
@@ -439,8 +477,19 @@ class ForumCrawler:
         """检测内容是否为不可解析的乱码（实现见 lib/text_utils.is_garbage_content）"""
         return is_garbage_content(html)
 
-    def extract_post_links_from_section(self, html):
-        """从版块页面中提取所有帖子链接（优先提取h3中的帖子入口链接）"""
+    def extract_post_links_from_section(self, html, section_url=None):
+        """从版块/分类页面中提取所有帖子/文章链接。
+
+        按站点分发：crazyhome 走 _extract_crazyhome_post_links，其余走 t66y 逻辑。
+        section_url 用于站点识别；未提供时回退到从 HTML 内容识别。
+        """
+        # 站点识别
+        site = self._detect_site(section_url) if section_url else (
+            'crazyhome' if (html and 'crazyhome2000.com' in html) else 't66y'
+        )
+        if site == 'crazyhome':
+            return self._extract_crazyhome_post_links(html)
+
         try:
             soup = BeautifulSoup(html, 'html.parser')
             post_links = []
@@ -514,8 +563,8 @@ class ForumCrawler:
                             if full_url not in post_links:
                                 post_links.append(full_url)
             
-            # 去重
-            unique_links = list(set(post_links))
+            # 去重（保序：上游已按页面顺序追加，dict.fromkeys 兜底且不打乱顺序）
+            unique_links = list(dict.fromkeys(post_links))
             print(f"✓ 从版块提取到 {len(unique_links)} 个帖子链接（直接获取htm_data入口）", flush=True)
             return unique_links
         except Exception as e:
@@ -523,7 +572,84 @@ class ForumCrawler:
             import traceback
             traceback.print_exc()
             return []
-    
+
+    def _extract_crazyhome_post_links(self, html):
+        """从 crazyhome 分类/标签归档页提取文章链接列表。
+
+        仅提取主内容区（<main>）内的文章固定链接 a[rel=bookmark]：
+        主题在 li.item > h3.item-title > a[rel=bookmark] 中渲染当前归档的文章，
+        而侧栏「近期文章」等推荐位的链接没有 rel=bookmark，天然被排除，
+        避免把跨版块的推荐文章误采进当前任务。
+
+        文章 URL 形如 https://www.crazyhome2000.com/<标题slug>/
+        主选择器失效（主题改版）时，逐级回退到全页 bookmark、再到旧的启发式扫描。
+        """
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # 1) 首选：<main> 内的文章固定链接（分类页/标签页均命中，推荐位无 rel=bookmark）
+            anchors = []
+            main = soup.find('main')
+            if main:
+                anchors = main.select("a[rel~='bookmark']")
+            # 2) 回退：全页 rel=bookmark
+            if not anchors:
+                anchors = soup.select("a[rel~='bookmark']")
+
+            post_links = []
+            seen = set()
+            for a in anchors:
+                href = (a.get('href') or '').strip()
+                if not href or 'crazyhome2000.com/' not in href:
+                    continue
+                txt = a.get_text(strip=True)
+                if not txt or len(txt) < 2:
+                    continue
+                if href in seen:
+                    continue
+                seen.add(href)
+                post_links.append(href)
+
+            # 3) 兜底：主题改版导致 rel=bookmark 缺失时，沿用旧的启发式（排除功能页/分页/标签路径）
+            if not post_links:
+                print("⚠ crazyhome: 未命中 rel=bookmark 主选择器，回退到启发式扫描", flush=True)
+                post_links = self._extract_crazyhome_post_links_fallback(soup)
+
+            print(f"✓ crazyhome: 从分类页提取到 {len(post_links)} 个文章链接", flush=True)
+            return post_links
+        except Exception as e:
+            print(f"⚠ crazyhome: 提取文章链接失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            return []
+
+    def _extract_crazyhome_post_links_fallback(self, soup):
+        """启发式兜底：扫描全页链接并排除功能页/分页/标签/工具页路径。"""
+        from urllib.parse import unquote
+        exclude_prefixes = (
+            'category/', 'tag/', 'tag-page', 'page/', 'profile/',
+            'mybookmarks', 'login/', 'register/', 'account-setting',
+            'lost-password', '?', '#',
+        )
+        exclude_names = {'阅读记录', '书库列表', '我的书签'}
+        post_links = []
+        seen = set()
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if 'crazyhome2000.com/' not in href:
+                continue
+            path = href.split('crazyhome2000.com/', 1)[-1]
+            if not path or path.startswith(exclude_prefixes):
+                continue
+            if unquote(path).strip('/') in exclude_names:
+                continue
+            txt = a.get_text(strip=True)
+            if not txt or len(txt) < 2 or href in seen:
+                continue
+            seen.add(href)
+            post_links.append(href)
+        return post_links
+
     def fetch_section_page_with_retry(self, url, max_garbage_retries=5, request_timeout=60):
         """获取版块页面内容，带乱码检测和重试机制
         
@@ -700,13 +826,106 @@ class ForumCrawler:
                 'author': '楼主',
                 'sourceUrl': url,
                 'images': all_images,
+                'site': 't66y',
             }
         except Exception as e:
             print(f"✗ 解析页面失败: {e}", file=sys.stderr, flush=True)
             import traceback
             traceback.print_exc()
             return None
-    
+
+    def _parse_post(self, url, html, task_type='image'):
+        """帖子解析分发器：按站点调用对应的解析方法。
+
+        保持返回结构与 parse_t66y_post 一致：
+        {title, content, author, sourceUrl, images}
+        """
+        site = self._detect_site(url)
+        if site == 'crazyhome':
+            return self.parse_crazyhome_post(url, html, task_type)
+        return self.parse_t66y_post(url, html, task_type)
+
+    def parse_crazyhome_post(self, url, html, task_type='novel'):
+        """解析 crazyhome2000.com 小说文章（单页、纯文本、无图片）。
+
+        结构：
+        - 标题：<h1>
+        - 作者：正文段落中「作者：xxx」
+        - 正文容器：div.entry-content
+          - 跳过：书签弹窗 div（class 含 cbxwpbkmark）、作者行 <p>、
+                  末尾分类链接 div.entry-copyright
+          - 其余 <p> 拼接为正文
+        """
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+
+            # 标题
+            title = '未知标题'
+            h1 = soup.find('h1')
+            if h1:
+                title = h1.get_text(strip=True)
+
+            entry = soup.find('div', class_='entry-content')
+            if not entry:
+                print(f"⚠ crazyhome: 未找到 div.entry-content 容器", flush=True)
+                return None
+
+            # 遍历 entry-content 的直接子元素，剔除噪音并收集正文段落
+            author = '匿名'
+            content_parts = []
+            for child in entry.find_all(['p', 'div'], recursive=False):
+                classes = child.get('class') or []
+                # 书签/登录弹窗
+                if any('cbxwpbkmark' in c for c in classes):
+                    continue
+                # 末尾分类链接
+                if 'entry-copyright' in classes:
+                    continue
+                if child.name == 'p':
+                    txt = child.get_text(strip=True)
+                    if not txt:
+                        continue
+                    # 作者行：提取作者但不纳入正文
+                    if '作者：' in txt:
+                        m = re.search(r'作者：\s*(.+)', txt)
+                        if m:
+                            author = m.group(1).strip()
+                        continue
+                    content_parts.append(txt)
+
+            content = '\n\n'.join(content_parts) if content_parts else title
+            # 兜底：正文过短时用 entry 全文
+            if len(content) < 50:
+                content = entry.get_text('\n', strip=True)
+
+            # 解析系列名与章节号：标题形如 "超萌机娘大奸淫 16" 或 "师尊的禁脔 38-51"
+            # 章节号恒在末尾，取首个数字；系列名为末尾 space+digits 之前的部分
+            series = title
+            chapter_no = None
+            ch_match = re.search(r'\s+(\d{1,4})(?:-(\d{1,4}))?\s*$', title)
+            if ch_match:
+                chapter_no = int(ch_match.group(1))
+                series = title[:ch_match.start()].strip()
+
+            # 输出标题，供后端解析并更新任务名称
+            print(f"TITLE:{title}", flush=True)
+
+            return {
+                'title': title,
+                'content': content,
+                'author': author,
+                'sourceUrl': url,
+                'images': [],
+                'site': 'crazyhome',
+                'series': series,
+                'chapterNo': chapter_no,
+            }
+        except Exception as e:
+            print(f"✗ 解析 crazyhome 文章失败: {e}", file=sys.stderr, flush=True)
+            import traceback
+            traceback.print_exc()
+            return None
+
     def _extract_page_content(self, html, content_parts, images, page_num=1, task_type='image'):
         """从单个页面HTML中提取内容和图片 - 支持多种选择器"""
         try:
@@ -900,15 +1119,18 @@ class ForumCrawler:
             traceback.print_exc()
             return content_parts, images
     
+    def _derive_post_identity(self, post_data, task_type):
+        """按存库口径计算去重身份（content_hash, content_length），判定与文档构建共用。"""
+        return derive_post_identity(task_type, post_data['content'], post_data.get('images') or [])
+
     def _prepare_post_document(self, post_data, forum_url, task_type, forum_last_post_time=None):
         """准备待保存的帖子文档（哈希计算/媒体处理/文档构建），不写库；失败返回 None"""
         try:
             # 初始化图片目录
             initialize_image_dirs()
 
-            # 计算内容哈希值
-            content_hash = self._calculate_content_hash(post_data['content'])
-            content_length = len(post_data['content'])
+            # 计算去重身份（image：指纹取图片 URL 列表，长度取存库短文案；其余取正文）
+            content_hash, content_length = self._derive_post_identity(post_data, task_type)
             if content_hash:
                 print(f"✓ 内容哈希: {content_hash}", flush=True)
             print(f"✓ 内容长度: {content_length} 字符", flush=True)
@@ -951,7 +1173,8 @@ class ForumCrawler:
         try:
             operations = [
                 UpdateOne(
-                    {'sourceUrl': item['post']['sourceUrl']},
+                    # upsert 过滤同样按用户隔离，配合 {sourceUrl,userId} 复合唯一索引
+                    {'sourceUrl': item['post']['sourceUrl'], 'userId': item['post']['userId']},
                     build_upsert_updates(item['post']),
                     upsert=True,
                 )
@@ -966,6 +1189,8 @@ class ForumCrawler:
                 print(f"⚠ 批量写库部分失败: {len(error_indexes)}/{len(operations)} 条", file=sys.stderr, flush=True)
 
             saved_items = [item for i, item in enumerate(buffered) if i not in error_indexes]
+            # 协调系列代表帖：每个系列仅章节号最小的一章 isSeriesHead=True
+            self._reconcile_series_heads(saved_items)
             for item in saved_items:
                 print(f"✓ 文章已保存: {item['post']['title']}", flush=True)
                 if on_saved:
@@ -976,6 +1201,29 @@ class ForumCrawler:
             import traceback
             traceback.print_exc()
             return []
+
+    def _reconcile_series_heads(self, saved_items):
+        """协调系列代表帖：每个系列仅章节号最小的一章 isSeriesHead=True。
+
+        批量 upsert 时所有帖子都被置为 isSeriesHead=True，此处对涉及到的
+        系列重新选定 head，保证列表查询每本书只出现一条。
+        """
+        series_names = {item['post'].get('series') for item in saved_items if item['post'].get('series')}
+        for name in series_names:
+            try:
+                head = self.posts_collection.find_one(
+                    {'series': name}, {'chapterNo': 1}, sort=[('chapterNo', 1)]
+                )
+                if not head:
+                    continue
+                self.posts_collection.update_many(
+                    {'series': name}, {'$set': {'isSeriesHead': False}}
+                )
+                self.posts_collection.update_one(
+                    {'_id': head['_id']}, {'$set': {'isSeriesHead': True}}
+                )
+            except Exception as e:
+                print(f"⚠ 协调系列 head 失败 [{name}]: {e}", file=sys.stderr, flush=True)
 
     def _save_post(self, post_data, forum_url, task_type, forum_last_post_time=None):
         """保存单个帖子到数据库（单帖模式路径：准备文档后立即批量写库）
@@ -994,38 +1242,38 @@ class ForumCrawler:
         return len(saved) > 0
     
     def _is_post_exist(self, post_url, content_hash=None, content_length=None):
-        """检查帖子是否已经存在于数据库中（支持内容长度判断和内容哈希去重）
-        
+        """检查帖子是否已经存在于数据库中（内容长度判断 + 内容哈希去重）
+
         Args:
             post_url: 帖子URL
-            content_hash: 内容哈希值（如果提供，优先使用）
+            content_hash: 内容哈希值（参与哈希判定）
             content_length: 新爬取的内容长度（字符数）
-            
+
         Returns:
-            {
-                'exists': bool,
-                'reason': str,  # duplicate|same_url|content_duplicate|shorter_content
-                'message': str,
-                'shouldUpdate': bool?  # 是否应该覆盖更新
-            }
+            lib.dedup.evaluate_duplicate 的决策 dict：
+            {'action': 'save'|'update'|'skip',
+             'reason': str|None, 'message': str|None, 'detail': str|None}
         """
         try:
-            url_post = self.posts_collection.find_one({'sourceUrl': post_url})
+            # 去重按用户隔离：同一 sourceUrl/contentHash 不同用户各存一份
+            url_post = self.posts_collection.find_one(
+                {'sourceUrl': post_url, 'userId': self.user_id}
+            )
 
-            # 内容哈希撞车查询仅在 URL 未命中时进行（保持原有语义）
+            # 内容哈希撞车查询仅在 URL 未命中时进行，同样限定本用户范围
             content_duplicate = None
             if not url_post and content_hash:
-                content_duplicate = self.posts_collection.find_one({'contentHash': content_hash})
+                content_duplicate = self.posts_collection.find_one(
+                    {'contentHash': content_hash, 'userId': self.user_id}
+                )
 
-            # 判定逻辑下沉 lib/dedup（纯函数，语义与原实现一致）
-            return evaluate_duplicate(url_post, content_duplicate, content_hash, content_length)
+            result = evaluate_duplicate(url_post, content_duplicate, content_hash, content_length)
+            _log_duplicate_decision(url_post, result, content_length)
+            return result
         except Exception as e:
             print(f"⚠ 检查帖子是否存在失败: {e}", file=sys.stderr, flush=True)
-            return {
-                'exists': False,
-                'reason': None,
-                'message': None
-            }
+            # 检查失败不阻断爬取（沿用历史放行策略）
+            return {'action': 'save', 'reason': None, 'message': None, 'detail': None}
     
     def crawl_forum(self, forum_url, task_type='image', max_depth=1, max_pages=10, crawl_type='single', start_page=1):
         """爬取论坛内容 - 支持单帖和批量采集"""
@@ -1089,7 +1337,7 @@ class ForumCrawler:
                     }
                 
                 # 提取起始页的帖子链接
-                all_post_links = self.extract_post_links_from_section(html)
+                all_post_links = self.extract_post_links_from_section(html, start_url)
                 
                 # 逐页采集，而不是一次性决定总页数
                 print(f"📋 采用逐页采集模式，从第 {start_page} 页开始，最多采集 {max_pages} 页", flush=True)
@@ -1117,7 +1365,7 @@ class ForumCrawler:
                         break
                     
                     # 提取该页的帖子链接
-                    page_links = self.extract_post_links_from_section(section_page_html)
+                    page_links = self.extract_post_links_from_section(section_page_html, section_page_url)
                     
                     if not page_links:
                         print(f"⚠ 版块第 {next_page_num} 页没有帖子链接，停止采集", flush=True)
@@ -1137,8 +1385,8 @@ class ForumCrawler:
                 
                 print(f"📊 共采集版块 {current_page} 页", flush=True)
                 
-                # 去重
-                unique_post_links = list(set(all_post_links))
+                # 去重（保序：set 会打乱爬取顺序，dict.fromkeys 保留首次出现顺序）
+                unique_post_links = list(dict.fromkeys(all_post_links))
                 total_posts = len(unique_post_links)
                 print(f"📋 准备爬取 {total_posts} 个帖子", flush=True)
                 
@@ -1147,15 +1395,7 @@ class ForumCrawler:
                     # 暂停闸门：每个帖子处理前的安全边界
                     self.wait_if_paused()
                     print(f"\n🔍 正在处理帖子 {i}/{total_posts}: {post_url}", flush=True)
-                    
-                    # 先进行快速的URL检查
-                    quick_check = self.posts_collection.find_one({'sourceUrl': post_url})
-                    if quick_check and quick_check.get('contentHash'):
-                        # URL存在且有内容哈希，直接检查是否真正重复
-                        print(f"📋 帖子URL已存在，先获取内容计算哈希进行完整检查...", flush=True)
-                    else:
-                        print(f"📋 帖子未存在或无哈希信息，继续采集...", flush=True)
-                    
+
                     # 更新进度
                     progress = int((i / total_posts) * 100)
                     print(f"PROGRESS:{progress}", flush=True)
@@ -1182,7 +1422,7 @@ class ForumCrawler:
                         actual_post_url = post_url
                     
                     # 解析帖子
-                    post_data = self.parse_t66y_post(actual_post_url, post_html, task_type)
+                    post_data = self._parse_post(actual_post_url, post_html, task_type)
                     if not post_data:
                         print(f"⚠ 解析帖子失败，跳过: {actual_post_url}", flush=True)
                         failed_count += 1
@@ -1193,13 +1433,12 @@ class ForumCrawler:
                         })
                         continue
                     
-                    # 计算内容哈希值
-                    content_hash = self._calculate_content_hash(post_data['content'])
-                    content_length = len(post_data['content'])
+                    # 计算去重身份（image 按图片 URL 指纹，长度按存库口径）
+                    content_hash, content_length = self._derive_post_identity(post_data, task_type)
                     
                     # 现在进行基于内容长度和哈希的检查
                     check_result = self._is_post_exist(actual_post_url, content_hash, content_length)
-                    if check_result['exists']:
+                    if check_result['action'] == SKIP:
                         print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_post_url}", flush=True)
                         skipped_count += 1
                         skip_details.append({
@@ -1216,7 +1455,7 @@ class ForumCrawler:
                         continue
                     
                     # 检查是否需要更新
-                    if check_result.get('shouldUpdate'):
+                    if check_result['action'] == UPDATE:
                         print(f"📝 检测到URL相同但内容更新，准备覆盖更新: {actual_post_url}", flush=True)
                     
                     # 准备文档并攒批，写库成功后由 count_saved 计入进度（C2 批量写库）
@@ -1263,7 +1502,7 @@ class ForumCrawler:
                     actual_forum_url = forum_url
                 
                 # 解析页面（获取所有页面的楼主内容）
-                post_data = self.parse_t66y_post(actual_forum_url, post_html, task_type)
+                post_data = self._parse_post(actual_forum_url, post_html, task_type)
                 if not post_data:
                     print(f"✗ 解析页面失败", file=sys.stderr, flush=True)
                     return {
@@ -1272,13 +1511,12 @@ class ForumCrawler:
                         'error': '解析页面失败',
                     }
                 
-                # 计算内容哈希值
-                content_hash = self._calculate_content_hash(post_data['content'])
-                content_length = len(post_data['content'])
+                # 计算去重身份（image 按图片 URL 指纹，长度按存库口径）
+                content_hash, content_length = self._derive_post_identity(post_data, task_type)
                 
                 # 检查帖子是否已存在（基于内容长度和哈希）
                 check_result = self._is_post_exist(actual_forum_url, content_hash, content_length)
-                if check_result['exists']:
+                if check_result['action'] == SKIP:
                     print(f"📋 帖子已存在（原因: {check_result['reason']}），跳过: {actual_forum_url}", flush=True)
                     return {
                         'success': True,
@@ -1295,7 +1533,7 @@ class ForumCrawler:
                     }
                 
                 # 检查是否需要更新
-                if check_result.get('shouldUpdate'):
+                if check_result['action'] == UPDATE:
                     print(f"📝 检测到URL相同但内容更新，准备覆盖更新: {actual_forum_url}", flush=True)
                 
                 # 保存帖子时使用最终的URL

@@ -17,7 +17,7 @@ export function buildPostUpdatePayload(values, post) {
 
 // 帖子元信息编辑弹窗（图片组/小说浏览共用）。
 // 后端 PUT /api/posts/:id 白名单：title/content/visibility/status/tags，
-// 且按 {_id, userId} 校验——只有资源所有者能改，非所有者会收到 404。
+// 按 {_id, userId} 校验所有权（管理员豁免，可改任意用户的帖子），非所有者返回 404。
 const PostEditModal = ({ open, post, onClose, onSaved }) => {
   const [form] = Form.useForm();
 
